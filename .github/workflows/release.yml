@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Configure
+        run: cmake --preset x64-windows-rel
+
+      - name: Build
+        run: cmake --build --preset x64-windows-rel
+
+      - name: Parse changelog version
+        id: changelog
+        uses: mindsers/changelog-reader-action@v2
+        with:
+          path: ./CHANGELOG.md
+
+      # TODO: Replace 'lje-module-template' with your project name
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.changelog.outputs.version }}
+          tag_name: v${{ steps.changelog.outputs.version }}
+          body: ${{ steps.changelog.outputs.changes }}
+          files: |
+            build/x64-windows-rel/lje-module-template.dll

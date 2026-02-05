@@ -1,0 +1,3 @@
+[submodule "lje"]
+	path = lje
+	url = https://github.com/lj-expand/lj-expand
