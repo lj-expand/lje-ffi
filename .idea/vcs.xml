@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/x64-windows-dbg/_deps/capstone-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/x64-windows-rel/_deps/capstone-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/extern/minhook" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/lje" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/lje/src/libs/tomlc17" vcs="Git" />
+  </component>
+</project>

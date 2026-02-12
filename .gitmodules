@@ -1,3 +1,6 @@
 [submodule "lje"]
 	path = lje
 	url = https://github.com/lj-expand/lj-expand
+[submodule "extern/minhook"]
+	path = extern/minhook
+	url = https://github.com/TsudaKageyu/minhook

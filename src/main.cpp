@@ -1,35 +1,48 @@
-#include <lje_sdk.h>
+#define LJE_SDK_IMPLEMENTATION
+#include "api/call.hpp"
+#include "api/disasm.hpp"
+#include "api/hook.hpp"
+#include "api/mem.hpp"
+#include "api/module.hpp"
+#include "api/struct.hpp"
+#include "api/vtable.hpp"
 #include "version.h"
 
-// Global LJE API pointer - use this to interact with LJE
+#include <cstdio>
+#include <ffi.h>
+#include <lje_sdk.h>
+
 LjeApi *g_api = nullptr;
 
-// Called after Lua state is initialized
-// Use this for any setup that needs the full environment
 LJE_MODULE_INIT() {
   g_api = api;
 
-  // TODO: Initialize your module here
   if (api->version < LJE_SDK_VERSION) {
     return LJE_RESULT_INCOMPATIBLE_SDK_VERSION;
   }
 
+  printf("[LJE]: LJE FFI v" LJE_MODULE_VERSION " initialized!\n");
   return LJE_RESULT_OK;
 }
 
-// Called before Lua state is fully initialized
-// Use this to register your Lua API functions
 LJE_MODULE_PREINIT() {
-  // TODO: Register your Lua functions here
-  // lua_State is passed as 'L'
+  const auto* lua = g_api->lua;
+  lua->pushljeenv(L);
+  lua->createtable(L, 0, 0);
+  api::module::register_all(L);
+  api::call::register_all(L);
+  api::mem::register_all(L);
+  api::disasm::register_all(L);
+  api::cstruct::register_all(L);
+  api::vtable::register_all(L);
+  api::hook::register_all(L);
+  lua->setfield(L, -2, "ffi");
+  lua->pop(L, 1); // Pop lje env
 
   return LJE_RESULT_OK;
 }
 
-// Called when module is unloaded
-// Clean up any resources here
 LJE_MODULE_SHUTDOWN() {
-  // TODO: Cleanup your module here
   g_api = nullptr;
 
   return LJE_RESULT_OK;
