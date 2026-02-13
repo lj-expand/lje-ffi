@@ -446,6 +446,83 @@ static DWORD parse_protection(const char *rights) {
   return PAGE_NOACCESS;
 }
 
+static const char *protection_to_string(DWORD prot) {
+  static thread_local char buf[16];
+  const char *base;
+  DWORD flags = prot & ~(PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE);
+
+  switch (flags) {
+  case PAGE_NOACCESS:          base = "---"; break;
+  case PAGE_READONLY:          base = "r"; break;
+  case PAGE_READWRITE:         base = "rw"; break;
+  case PAGE_WRITECOPY:         base = "rc"; break;
+  case PAGE_EXECUTE:           base = "x"; break;
+  case PAGE_EXECUTE_READ:      base = "rx"; break;
+  case PAGE_EXECUTE_READWRITE: base = "rwx"; break;
+  case PAGE_EXECUTE_WRITECOPY: base = "rxc"; break;
+  default:                     base = "?"; break;
+  }
+
+  strcpy(buf, base);
+  if (prot & PAGE_GUARD)        strcat(buf, "+g");
+  if (prot & PAGE_NOCACHE)      strcat(buf, "+n");
+  if (prot & PAGE_WRITECOMBINE) strcat(buf, "+w");
+  return buf;
+}
+
+static const char *state_to_string(DWORD state) {
+  switch (state) {
+  case MEM_COMMIT:  return "commit";
+  case MEM_RESERVE: return "reserve";
+  case MEM_FREE:    return "free";
+  default:          return "unknown";
+  }
+}
+
+static const char *type_to_string(DWORD type) {
+  switch (type) {
+  case MEM_IMAGE:   return "image";
+  case MEM_MAPPED:  return "mapped";
+  case MEM_PRIVATE: return "private";
+  default:          return "unknown";
+  }
+}
+
+// mem.query(address: number) -> table | nil
+static int query(lua_State *L) {
+  auto lua = g_api->lua;
+  auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
+
+  MEMORY_BASIC_INFORMATION mbi;
+  if (VirtualQuery(reinterpret_cast<void *>(addr), &mbi, sizeof(mbi)) == 0)
+    return 0;
+
+  lua->createtable(L, 0, 7);
+
+  lua->pushnumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(mbi.BaseAddress)));
+  lua->setfield(L, -2, "base");
+
+  lua->pushnumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(mbi.AllocationBase)));
+  lua->setfield(L, -2, "alloc_base");
+
+  lua->pushnumber(L, static_cast<double>(mbi.RegionSize));
+  lua->setfield(L, -2, "size");
+
+  lua->pushstring(L, state_to_string(mbi.State));
+  lua->setfield(L, -2, "state");
+
+  lua->pushstring(L, protection_to_string(mbi.Protect));
+  lua->setfield(L, -2, "protect");
+
+  lua->pushstring(L, protection_to_string(mbi.AllocationProtect));
+  lua->setfield(L, -2, "alloc_protect");
+
+  lua->pushstring(L, type_to_string(mbi.Type));
+  lua->setfield(L, -2, "type");
+
+  return 1;
+}
+
 // mem.protect(address: number, size: number, rights: string) -> boolean, old_rights
 static int protect(lua_State *L) {
   auto lua = g_api->lua;
@@ -666,7 +743,7 @@ void register_all(lua_State *L) {
 
   install_veh();
 
-  lua->createtable(L, 0, 40);
+  lua->createtable(L, 0, 41);
 
   // Allocation
   lua->pushcclosure(L, reinterpret_cast<void *>(alloc), 0);
@@ -837,6 +914,9 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(protect), 0);
   lua->setfield(L, -2, "protect");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(query), 0);
+  lua->setfield(L, -2, "query");
 
   lua->pushcclosure(L, reinterpret_cast<void *>(deref), 0);
   lua->setfield(L, -2, "deref");

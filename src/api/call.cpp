@@ -1,51 +1,95 @@
 #include "call.hpp"
-#include "../globals.hpp"
+#include "ffi-helpers.hpp"
 
-#include <cstdint>
 #include <cstring>
-#include <ffi.h>
+#include <string>
+#include <unordered_map>
 #include <vector>
+
+using api::ffi_helpers::char_to_ffi_type;
 
 namespace api::call {
 
-// Type codes:
-//   v = void
-//   i = int32
-//   u = uint32
-//   l = int64 (long long)
-//   f = float
-//   d = double
-//   p = pointer
-//   s = string (Lua string passed as const char*)
-//
-// Signature format: first char is return type, rest are arg types
-// Examples:
-//   "vi"   = void(int)
-//   "iip"  = int(int, pointer)
-//   "vs"   = void(const char*)
-//   "vsi"  = void(const char*, int)  -- for variadic like printf
+// Cached CIF to avoid re-prepping on every call
+struct CachedCif {
+  ffi_cif cif;
+  std::vector<ffi_type *> arg_types;
+};
 
-static ffi_type *char_to_ffi_type(char c) {
-  switch (c) {
-  case 'v':
-    return &ffi_type_void;
-  case 'i':
-    return &ffi_type_sint32;
-  case 'u':
-    return &ffi_type_uint32;
-  case 'l':
-    return &ffi_type_sint64;
-  case 'f':
-    return &ffi_type_float;
-  case 'd':
-    return &ffi_type_double;
-  case 'p':
-    return &ffi_type_pointer;
-  case 's':
-    return &ffi_type_pointer; // string is just a pointer to ffi
-  default:
+static std::unordered_map<std::string, CachedCif> s_cif_cache;
+
+// Returns a cached CIF for the given signature, or preps and caches a new one.
+static CachedCif *get_or_prep_cif(const char *sig) {
+  auto it = s_cif_cache.find(sig);
+  if (it != s_cif_cache.end())
+    return &it->second;
+
+  char ret_type = sig[0];
+  const char *arg_str = sig + 1;
+  size_t arg_count = strlen(arg_str);
+
+  ffi_type *ffi_ret = char_to_ffi_type(ret_type);
+  if (!ffi_ret)
+    return nullptr;
+
+  auto &entry = s_cif_cache[sig];
+  entry.arg_types.resize(arg_count);
+
+  for (size_t i = 0; i < arg_count; i++) {
+    entry.arg_types[i] = char_to_ffi_type(arg_str[i]);
+    if (!entry.arg_types[i]) {
+      s_cif_cache.erase(sig);
+      return nullptr;
+    }
+  }
+
+  if (ffi_prep_cif(&entry.cif, FFI_DEFAULT_ABI, static_cast<unsigned>(arg_count), ffi_ret,
+                   arg_count ? entry.arg_types.data() : nullptr) != FFI_OK) {
+    s_cif_cache.erase(sig);
     return nullptr;
   }
+
+  return &entry;
+}
+
+// Same as above but for variadic calls (key includes fixed_count).
+static CachedCif *get_or_prep_cif_var(const char *sig, unsigned fixed_count) {
+  // Build a key that distinguishes fixed_count: "sig:N"
+  std::string key(sig);
+  key += ':';
+  key += std::to_string(fixed_count);
+
+  auto it = s_cif_cache.find(key);
+  if (it != s_cif_cache.end())
+    return &it->second;
+
+  char ret_type = sig[0];
+  const char *arg_str = sig + 1;
+  size_t arg_count = strlen(arg_str);
+
+  ffi_type *ffi_ret = char_to_ffi_type(ret_type);
+  if (!ffi_ret)
+    return nullptr;
+
+  auto &entry = s_cif_cache[key];
+  entry.arg_types.resize(arg_count);
+
+  for (size_t i = 0; i < arg_count; i++) {
+    entry.arg_types[i] = char_to_ffi_type(arg_str[i]);
+    if (!entry.arg_types[i]) {
+      s_cif_cache.erase(key);
+      return nullptr;
+    }
+  }
+
+  if (ffi_prep_cif_var(&entry.cif, FFI_DEFAULT_ABI, fixed_count,
+                       static_cast<unsigned>(arg_count), ffi_ret,
+                       arg_count ? entry.arg_types.data() : nullptr) != FFI_OK) {
+    s_cif_cache.erase(key);
+    return nullptr;
+  }
+
+  return &entry;
 }
 
 static void store_arg(lua_State *L, int lua_idx, char type, uint64_t *storage) {
@@ -160,31 +204,15 @@ static int invoke(lua_State *L) {
     return 1;
   }
 
+  auto *cached = get_or_prep_cif(sig);
+  if (!cached) {
+    lua->pushstring(L, "invalid signature or ffi_prep_cif failed");
+    return 1;
+  }
+
   char ret_type = sig[0];
   const char *arg_types = sig + 1;
   size_t arg_count = strlen(arg_types);
-
-  ffi_type *ffi_ret = char_to_ffi_type(ret_type);
-  if (!ffi_ret) {
-    lua->pushstring(L, "invalid return type");
-    return 1;
-  }
-
-  std::vector<ffi_type *> ffi_args(arg_count);
-  for (size_t i = 0; i < arg_count; i++) {
-    ffi_args[i] = char_to_ffi_type(arg_types[i]);
-    if (!ffi_args[i]) {
-      lua->pushstring(L, "invalid argument type");
-      return 1;
-    }
-  }
-
-  ffi_cif cif;
-  if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, static_cast<unsigned>(arg_count), ffi_ret,
-                   arg_count ? ffi_args.data() : nullptr) != FFI_OK) {
-    lua->pushstring(L, "ffi_prep_cif failed");
-    return 1;
-  }
 
   std::vector<uint64_t> arg_storage(arg_count);
   std::vector<void *> arg_ptrs(arg_count);
@@ -195,7 +223,7 @@ static int invoke(lua_State *L) {
   }
 
   uint64_t ret_storage = 0;
-  ffi_call(&cif, reinterpret_cast<void (*)()>(address), &ret_storage,
+  ffi_call(&cached->cif, reinterpret_cast<void (*)()>(address), &ret_storage,
            arg_count ? arg_ptrs.data() : nullptr);
 
   return push_return(L, ret_type, &ret_storage);
@@ -223,25 +251,9 @@ static int invoke_var(lua_State *L) {
     return 1;
   }
 
-  ffi_type *ffi_ret = char_to_ffi_type(ret_type);
-  if (!ffi_ret) {
-    lua->pushstring(L, "invalid return type");
-    return 1;
-  }
-
-  std::vector<ffi_type *> ffi_args(arg_count);
-  for (size_t i = 0; i < arg_count; i++) {
-    ffi_args[i] = char_to_ffi_type(arg_types[i]);
-    if (!ffi_args[i]) {
-      lua->pushstring(L, "invalid argument type");
-      return 1;
-    }
-  }
-
-  ffi_cif cif;
-  if (ffi_prep_cif_var(&cif, FFI_DEFAULT_ABI, fixed_count, static_cast<unsigned>(arg_count),
-                       ffi_ret, arg_count ? ffi_args.data() : nullptr) != FFI_OK) {
-    lua->pushstring(L, "ffi_prep_cif_var failed");
+  auto *cached = get_or_prep_cif_var(sig, fixed_count);
+  if (!cached) {
+    lua->pushstring(L, "invalid signature or ffi_prep_cif_var failed");
     return 1;
   }
 
@@ -254,7 +266,7 @@ static int invoke_var(lua_State *L) {
   }
 
   uint64_t ret_storage = 0;
-  ffi_call(&cif, reinterpret_cast<void (*)()>(address), &ret_storage,
+  ffi_call(&cached->cif, reinterpret_cast<void (*)()>(address), &ret_storage,
            arg_count ? arg_ptrs.data() : nullptr);
 
   return push_return(L, ret_type, &ret_storage);
