@@ -13,6 +13,8 @@
 #include <vector>
 
 #define WIN32_LEAN_AND_MEAN
+#include "../util/call-auth.hpp"
+
 #include <Windows.h>
 
 namespace api::mem {
@@ -49,6 +51,8 @@ void install_veh() {
 // mem.alloc(size: number) -> number (address)
 static int alloc(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+
   auto size = static_cast<size_t>(lua->tonumber(L, 1));
   void *ptr = malloc(size);
   lua->pushnumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(ptr)));
@@ -58,6 +62,7 @@ static int alloc(lua_State *L) {
 // mem.free(address: number)
 static int free_(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   free(reinterpret_cast<void *>(addr));
   return 0;
@@ -66,6 +71,7 @@ static int free_(lua_State *L) {
 // mem.copy(dest: number, src: number, size: number)
 static int copy(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto dest = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto src = static_cast<uintptr_t>(lua->tonumber(L, 2));
   auto size = static_cast<size_t>(lua->tonumber(L, 3));
@@ -76,6 +82,7 @@ static int copy(lua_State *L) {
 // mem.fill(address: number, value: number, size: number)
 static int fill(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto value = static_cast<int>(lua->tonumber(L, 2));
   auto size = static_cast<size_t>(lua->tonumber(L, 3));
@@ -86,6 +93,7 @@ static int fill(lua_State *L) {
 // Read functions
 static int read_u8(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<uint8_t *>(addr)));
   return 1;
@@ -93,6 +101,7 @@ static int read_u8(lua_State *L) {
 
 static int read_i8(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<int8_t *>(addr)));
   return 1;
@@ -100,6 +109,7 @@ static int read_i8(lua_State *L) {
 
 static int read_u16(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<uint16_t *>(addr)));
   return 1;
@@ -107,6 +117,7 @@ static int read_u16(lua_State *L) {
 
 static int read_i16(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<int16_t *>(addr)));
   return 1;
@@ -114,6 +125,7 @@ static int read_i16(lua_State *L) {
 
 static int read_u32(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<uint32_t *>(addr)));
   return 1;
@@ -121,6 +133,7 @@ static int read_u32(lua_State *L) {
 
 static int read_i32(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<int32_t *>(addr)));
   return 1;
@@ -128,6 +141,7 @@ static int read_i32(lua_State *L) {
 
 static int read_u64(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<uint64_t *>(addr)));
   return 1;
@@ -135,6 +149,7 @@ static int read_u64(lua_State *L) {
 
 static int read_i64(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<int64_t *>(addr)));
   return 1;
@@ -142,6 +157,7 @@ static int read_i64(lua_State *L) {
 
 static int read_f32(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<float *>(addr)));
   return 1;
@@ -149,6 +165,7 @@ static int read_f32(lua_State *L) {
 
 static int read_f64(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, *reinterpret_cast<double *>(addr));
   return 1;
@@ -156,6 +173,7 @@ static int read_f64(lua_State *L) {
 
 static int read_ptr(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   lua->pushnumber(L, static_cast<double>(*reinterpret_cast<uintptr_t *>(addr)));
   return 1;
@@ -164,6 +182,7 @@ static int read_ptr(lua_State *L) {
 // mem.read_string(address: number, max_len?: number) -> string
 static int read_string(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto ptr = reinterpret_cast<const char *>(addr);
 
@@ -185,6 +204,7 @@ static int read_string(lua_State *L) {
 #define TRY_READ_FUNC(name, type, cast)                                                            \
   static int try_read_##name(lua_State *L) {                                                       \
     auto lua = g_api->lua;                                                                         \
+    FFI_AUTH_CALL(lua, L);                                                                         \
     auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));                                       \
     t_protected = true;                                                                            \
     if (setjmp(t_jmp_buf) == 0) {                                                                  \
@@ -226,6 +246,7 @@ static size_t safe_strnlen(const char *ptr, size_t max_len) {
 // mem.try_read_string(address: number, max_len?: number) -> string | nil
 static int try_read_string(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto ptr = reinterpret_cast<const char *>(addr);
 
@@ -244,6 +265,7 @@ static int try_read_string(lua_State *L) {
 // Write functions
 static int write_u8(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<uint8_t>(lua->tonumber(L, 2));
   *reinterpret_cast<uint8_t *>(addr) = val;
@@ -252,6 +274,7 @@ static int write_u8(lua_State *L) {
 
 static int write_i8(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<int8_t>(lua->tonumber(L, 2));
   *reinterpret_cast<int8_t *>(addr) = val;
@@ -260,6 +283,7 @@ static int write_i8(lua_State *L) {
 
 static int write_u16(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<uint16_t>(lua->tonumber(L, 2));
   *reinterpret_cast<uint16_t *>(addr) = val;
@@ -268,6 +292,7 @@ static int write_u16(lua_State *L) {
 
 static int write_i16(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<int16_t>(lua->tonumber(L, 2));
   *reinterpret_cast<int16_t *>(addr) = val;
@@ -276,6 +301,7 @@ static int write_i16(lua_State *L) {
 
 static int write_u32(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<uint32_t>(lua->tonumber(L, 2));
   *reinterpret_cast<uint32_t *>(addr) = val;
@@ -284,6 +310,7 @@ static int write_u32(lua_State *L) {
 
 static int write_i32(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<int32_t>(lua->tonumber(L, 2));
   *reinterpret_cast<int32_t *>(addr) = val;
@@ -292,6 +319,7 @@ static int write_i32(lua_State *L) {
 
 static int write_u64(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<uint64_t>(lua->tonumber(L, 2));
   *reinterpret_cast<uint64_t *>(addr) = val;
@@ -300,6 +328,7 @@ static int write_u64(lua_State *L) {
 
 static int write_i64(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<int64_t>(lua->tonumber(L, 2));
   *reinterpret_cast<int64_t *>(addr) = val;
@@ -308,6 +337,7 @@ static int write_i64(lua_State *L) {
 
 static int write_f32(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<float>(lua->tonumber(L, 2));
   *reinterpret_cast<float *>(addr) = val;
@@ -316,6 +346,7 @@ static int write_f32(lua_State *L) {
 
 static int write_f64(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = lua->tonumber(L, 2);
   *reinterpret_cast<double *>(addr) = val;
@@ -324,6 +355,7 @@ static int write_f64(lua_State *L) {
 
 static int write_ptr(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto val = static_cast<uintptr_t>(lua->tonumber(L, 2));
   *reinterpret_cast<uintptr_t *>(addr) = val;
@@ -333,6 +365,7 @@ static int write_ptr(lua_State *L) {
 // mem.write_string(address: number, str: string)
 static int write_string(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   size_t len;
   const char *str = lua->tolstring(L, 2, &len);
@@ -344,6 +377,7 @@ static int write_string(lua_State *L) {
 #define TRY_WRITE_FUNC(name, type)                                                                 \
   static int try_write_##name(lua_State *L) {                                                      \
     auto lua = g_api->lua;                                                                         \
+    FFI_AUTH_CALL(lua, L);                                                                         \
     auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));                                       \
     auto val = static_cast<type>(lua->tonumber(L, 2));                                             \
     t_protected = true;                                                                            \
@@ -376,6 +410,7 @@ TRY_WRITE_FUNC(ptr, uintptr_t)
 // mem.try_write_string(address: number, str: string) -> boolean
 static int try_write_string(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   size_t len;
   const char *str = lua->tolstring(L, 2, &len);
@@ -396,6 +431,7 @@ static int try_write_string(lua_State *L) {
 // mem.sizeof(type: string) -> number
 static int sizeof_(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const char *type = lua->tolstring(L, 1, nullptr);
 
   size_t size = 0;
@@ -417,6 +453,7 @@ static int sizeof_(lua_State *L) {
 // mem.unwrap_userdata(userdata) -> number (address)
 static int unwrap_userdata(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto ptr = lua->tolightuserdata(L, 1);
   lua->pushnumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(ptr)));
   return 1;
@@ -491,6 +528,7 @@ static const char *type_to_string(DWORD type) {
 // mem.query(address: number) -> table | nil
 static int query(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
 
   MEMORY_BASIC_INFORMATION mbi;
@@ -526,6 +564,7 @@ static int query(lua_State *L) {
 // mem.protect(address: number, size: number, rights: string) -> boolean, old_rights
 static int protect(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto size = static_cast<size_t>(lua->tonumber(L, 2));
   const char *rights = lua->tolstring(L, 3, nullptr);
@@ -542,6 +581,7 @@ static int protect(lua_State *L) {
 // Follows pointer chain: [[base+off1]+off2]+off3...
 static int deref(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
 
   // Iterate through offsets table
@@ -586,6 +626,7 @@ static bool safe_heap_walk(HANDLE heap, PROCESS_HEAP_ENTRY *entry) {
 // mem.heaps() -> table { {base=number, size=number}, ... }
 static int heaps(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   HANDLE heap_handles[256];
   DWORD heap_count = GetProcessHeaps(256, heap_handles);
@@ -621,6 +662,7 @@ static int heaps(lua_State *L) {
 // mem.scan(base: number, size: number, pattern: string, no_mask?: boolean) -> number | nil
 static int scan(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto base = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto size = static_cast<size_t>(lua->tonumber(L, 2));
   const char *pattern = lua->tolstring(L, 3, nullptr);
@@ -667,6 +709,7 @@ static int scan(lua_State *L) {
 // protection. min_size filters out regions smaller than the given size (default 0x10000).
 static int memory_scan(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const char *pattern = lua->tolstring(L, 1, nullptr);
   bool no_mask = lua->gettop(L) >= 2 && lua->toboolean(L, 2);
   size_t min_size =
@@ -725,6 +768,7 @@ static int memory_scan(lua_State *L) {
 // mem.addr_to_pat(address: number) -> string
 static int addr_to_pat(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
 
   char buf[24];

@@ -1,5 +1,6 @@
 #include "disasm.hpp"
 #include "../globals.hpp"
+#include "../util/call-auth.hpp"
 
 #include <capstone/capstone.h>
 #include <cstdint>
@@ -106,6 +107,7 @@ static void push_instruction(lua_State *L, const cs_insn *insn) {
 // disasm.at(address: number, count?: number) -> table of instructions
 static int at(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   if (!ensure_init()) {
     lua->createtable(L, 0, 0);
@@ -149,6 +151,7 @@ static uintptr_t pull_global_from_ins(cs_insn *insn) {
 // disasm.pull_global(address: number) -> global_address: number
 static int pull_global(lua_State* L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   if (!ensure_init()) {
     lua->pushnil(L);
@@ -179,6 +182,7 @@ static int pull_global(lua_State* L) {
 // disasm.pull_all_globals(address: number, max_size: number?) -> table of {number}
 static int pull_all_globals(lua_State* L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   if (!ensure_init()) {
     lua->createtable(L, 0, 0);
@@ -224,6 +228,7 @@ static int pull_all_globals(lua_State* L) {
 // but this allows us to easily pull thunk addresses for virtual functions which need their inner function hooked to be useful.
 static int pull_calls(lua_State* L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   if (!ensure_init()) {
     lua->createtable(L, 0, 0);

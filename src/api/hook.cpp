@@ -1,4 +1,5 @@
 #include "hook.hpp"
+#include "../util/call-auth.hpp"
 #include "ffi-helpers.hpp"
 
 #include <MinHook.h>
@@ -260,6 +261,7 @@ static HookInfo** push_hook_userdata(lua_State* L, HookInfo* hook) {
 // hook.create(target: number, signature: string, callback: function) -> userdata
 static int create(lua_State* L) {
     auto lua = g_api->lua;
+    FFI_AUTH_CALL(lua, L);
 
     auto target = static_cast<uintptr_t>(lua->tonumber(L, 1));
     const char* sig = lua->tolstring(L, 2, nullptr);
@@ -336,6 +338,7 @@ static HookInfo* get_hook(lua_State* L, int idx) {
 // hook.remove(hook: userdata) -> boolean
 static int remove(lua_State* L) {
     auto lua = g_api->lua;
+    FFI_AUTH_CALL(lua, L);
     auto* hook = get_hook(L, 1);
 
     if (!hook) {
@@ -352,6 +355,7 @@ static int remove(lua_State* L) {
 // hook.enable(hook: userdata) -> boolean
 static int enable(lua_State* L) {
     auto lua = g_api->lua;
+    FFI_AUTH_CALL(lua, L);
     auto* hook = get_hook(L, 1);
 
     if (!hook || hook->enabled) {
@@ -368,6 +372,7 @@ static int enable(lua_State* L) {
 // hook.disable(hook: userdata) -> boolean
 static int disable(lua_State* L) {
     auto lua = g_api->lua;
+    FFI_AUTH_CALL(lua, L);
     auto* hook = get_hook(L, 1);
 
     if (!hook || !hook->enabled) {

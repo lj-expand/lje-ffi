@@ -1,4 +1,5 @@
 #include "call.hpp"
+#include "../util/call-auth.hpp"
 #include "ffi-helpers.hpp"
 
 #include <cstring>
@@ -53,6 +54,7 @@ static CachedCif *get_or_prep_cif_var(const char *sig, unsigned fixed_count) {
 // call.invoke(address: number, signature: string, ...) -> varies
 static int invoke(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   auto address = static_cast<uintptr_t>(lua->tonumber(L, 1));
   const char *sig = lua->tolstring(L, 2, nullptr);
@@ -90,6 +92,7 @@ static int invoke(lua_State *L) {
 // call.bind(address: number, signature: string) -> function
 static int bind(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   auto address = static_cast<uintptr_t>(lua->tonumber(L, 1));
   const char *sig = lua->tolstring(L, 2, nullptr);
@@ -112,6 +115,7 @@ static int bind(lua_State *L) {
 // call.invoke_var(address: number, signature: string, fixed_count: number, ...) -> varies
 static int invoke_var(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   auto address = static_cast<uintptr_t>(lua->tonumber(L, 1));
   const char *sig = lua->tolstring(L, 2, nullptr);

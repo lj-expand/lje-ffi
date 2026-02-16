@@ -1,6 +1,8 @@
 #include "module.hpp"
 #include "../globals.hpp"
 #include "../util/module.hpp"
+
+#include "../util/call-auth.hpp"
 #include "../util/sigmask.hpp"
 #include "../util/sigscan.hpp"
 
@@ -12,6 +14,7 @@ namespace api::module {
 // module.find(name: string) -> lightuserdata | nil
 static int find(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const char *name = lua->tolstring(L, 1, nullptr);
   auto info = util::get_module_info(name);
 
@@ -26,6 +29,7 @@ static int find(lua_State *L) {
 // module.name(handle: lightuserdata) -> string
 static int name(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
 
   char buffer[MAX_PATH];
@@ -40,6 +44,7 @@ static int name(lua_State *L) {
 // module.base(handle: lightuserdata) -> number
 static int base(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
   auto info = util::get_module_info(handle);
 
@@ -54,6 +59,7 @@ static int base(lua_State *L) {
 // module.size(handle: lightuserdata) -> number
 static int size(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
   auto info = util::get_module_info(handle);
 
@@ -64,6 +70,7 @@ static int size(lua_State *L) {
 // module.export(handle: lightuserdata, name: string) -> number
 static int get_export(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
   const char *export_name = lua->tolstring(L, 2, nullptr);
 
@@ -77,6 +84,7 @@ static int bind_export(lua_State* L) {
   // It won't be pretty if we try to reuse functionality at the C++ level, so we'll just literally
   // push the binding to the stack and call it, since this is not necessarily a hot path.
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
   const char* export_name = lua->tolstring(L, 2, nullptr);
   const char* signature = lua->tolstring(L, 3, nullptr);
@@ -100,6 +108,7 @@ static int bind_export(lua_State* L) {
 // module.exports(handle: lightuserdata) -> table {name = address, ...}
 static int exports(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
   auto mod_base = reinterpret_cast<uintptr_t>(handle);
 
@@ -137,6 +146,7 @@ static int exports(lua_State *L) {
 // module.enumerate() -> table {lightuserdata, ...}
 static int enumerate(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
 
   HANDLE process = GetCurrentProcess();
   HMODULE modules[1024];
@@ -160,6 +170,7 @@ static int enumerate(lua_State *L) {
 //   -> table {number, ...}       (all = true)
 static int scan(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
   const char *pattern = lua->tolstring(L, 2, nullptr);
   bool no_mask = lua->gettop(L) >= 3 && lua->toboolean(L, 3);
@@ -232,6 +243,7 @@ static int scan(lua_State *L) {
 // module.sections(handle: lightuserdata) -> table { {name, base, size, characteristics}, ... }
 static int sections(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
 
   auto secs = util::get_module_sections(handle);

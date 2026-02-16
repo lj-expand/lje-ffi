@@ -1,5 +1,6 @@
 #include "struct.hpp"
 #include "../globals.hpp"
+#include "../util/call-auth.hpp"
 
 #include <cctype>
 #include <cstdint>
@@ -669,6 +670,7 @@ static void write_struct_at(lua_State *L, uintptr_t base, const StructDef &def, 
 // ffi.struct.define(cdef: string) -> true | false, error_string
 static int l_define(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const char *input = lua->tolstring(L, 1, nullptr);
   if (!input) {
     lua->pushboolean(L, 0);
@@ -696,6 +698,7 @@ static int l_define(lua_State *L) {
 // ffi.struct.sizeof(name: string) -> number | nil
 static int l_sizeof(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const char *name = lua->tolstring(L, 1, nullptr);
 
   init_builtin_types();
@@ -719,6 +722,7 @@ static int l_sizeof(lua_State *L) {
 // ffi.struct.offsetof(struct_name: string, field_name: string) -> number | nil
 static int l_offsetof(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const char *struct_name = lua->tolstring(L, 1, nullptr);
   const char *field_name = lua->tolstring(L, 2, nullptr);
 
@@ -740,6 +744,7 @@ static int l_offsetof(lua_State *L) {
 // Returns: { {name="x", type="int", offset=0, size=4}, ... }
 static int l_fields(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const char *name = lua->tolstring(L, 1, nullptr);
 
   auto it = s_structs.find(name);
@@ -784,6 +789,7 @@ static int l_fields(lua_State *L) {
 // ffi.struct.read(address: number, type_name: string) -> table | nil
 static int l_read(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   const char *name = lua->tolstring(L, 2, nullptr);
 
@@ -800,6 +806,7 @@ static int l_read(lua_State *L) {
 // ffi.struct.write(address: number, type_name: string, table) -> boolean
 static int l_write(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
   const char *name = lua->tolstring(L, 2, nullptr);
 

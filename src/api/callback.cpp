@@ -1,4 +1,5 @@
 #include "callback.hpp"
+#include "../util/call-auth.hpp"
 #include "ffi-helpers.hpp"
 
 #include <cstring>
@@ -113,6 +114,7 @@ static CallbackInfo* get_callback(lua_State* L, int idx) {
 // callback.create(sig, handler, on_remove?) -> userdata, number
 static int create(lua_State* L) {
     auto lua = g_api->lua;
+    FFI_AUTH_CALL(lua, L);
 
     if (s_main_thread_id == 0) {
         s_main_thread_id = GetCurrentThreadId();
@@ -200,6 +202,7 @@ static int create(lua_State* L) {
 // callback.remove(cb) -> boolean
 static int remove(lua_State* L) {
     auto lua = g_api->lua;
+    FFI_AUTH_CALL(lua, L);
     auto* cb = get_callback(L, 1);
 
     if (!cb) {
@@ -216,6 +219,7 @@ static int remove(lua_State* L) {
 // callback.address(cb) -> number
 static int address(lua_State* L) {
     auto lua = g_api->lua;
+    FFI_AUTH_CALL(lua, L);
     auto* cb = get_callback(L, 1);
 
     if (!cb) {

@@ -6,6 +6,7 @@
 #include <vector>
 
 #define WIN32_LEAN_AND_MEAN
+#include "../util/call-auth.hpp"
 #include "../util/memscan.hpp"
 #include "../util/module.hpp"
 #include "../util/sigscan.hpp"
@@ -24,6 +25,7 @@ using api::mem::t_protected;
 // Gets the vtable pointer from an object (first pointer in object)
 static int base(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto obj = static_cast<uintptr_t>(lua->tonumber(L, 1));
 
   t_protected = true;
@@ -42,6 +44,7 @@ static int base(lua_State *L) {
 // Gets the function pointer at vtable[index]
 static int get(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto obj = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto index = static_cast<size_t>(lua->tonumber(L, 2));
 
@@ -62,6 +65,7 @@ static int get(lua_State *L) {
 // Gets the function pointer at vtable[index] from a vtable pointer directly
 static int get_from(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto vtbl = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto index = static_cast<size_t>(lua->tonumber(L, 2));
 
@@ -81,6 +85,7 @@ static int get_from(lua_State *L) {
 // Sets the function pointer at vtable[index] (requires writable vtable)
 static int set(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto obj = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto index = static_cast<size_t>(lua->tonumber(L, 2));
   auto func = static_cast<uintptr_t>(lua->tonumber(L, 3));
@@ -103,6 +108,7 @@ static int set(lua_State *L) {
 // Sets the function pointer at vtable[index] from a vtable pointer directly
 static int set_from(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto vtbl = static_cast<uintptr_t>(lua->tonumber(L, 1));
   auto index = static_cast<size_t>(lua->tonumber(L, 2));
   auto func = static_cast<uintptr_t>(lua->tonumber(L, 3));
@@ -124,6 +130,7 @@ static int set_from(lua_State *L) {
 // Estimates vtable size by counting valid function pointers
 static int size(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   auto vtbl = static_cast<uintptr_t>(lua->tonumber(L, 1));
 
   size_t count = 0;
@@ -260,6 +267,7 @@ static uintptr_t find_vtable_rtti(HMODULE handle, const char *name) {
 // vtable.find(handle: lightuserdata, name: string) -> number | nil
 static int find(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const auto handle = util::lua_to_module(L, 1, lua->tolightuserdata);
   const auto name = lua->tolstring(L, 2, nullptr);
   if (!handle || !name)
@@ -280,6 +288,7 @@ static int find(lua_State *L) {
 // First tries the module's own sections, then falls back to a process-wide memory scan.
 static int find_instances(lua_State *L) {
   auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
   const auto handle = util::lua_to_module(L, 1, lua->tolightuserdata);
   const auto name = lua->tolstring(L, 2, nullptr);
   bool multiple = lua->gettop(L) >= 3 && lua->toboolean(L, 3);
