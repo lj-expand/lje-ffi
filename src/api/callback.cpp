@@ -58,14 +58,14 @@ static void closure_handler(ffi_cif* cif, void* ret, void** args, void* userdata
     int nresults = (ret_type == 'v') ? 0 : 1;
 
     if (lua->pcall(L, static_cast<int>(arg_count), nresults, 0) != LUA_OK) {
-        lua->settop(L, 0);
+        lua->settop(L, -2);
         if (ret) memset(ret, 0, cif->rtype->size);
         return;
     }
 
     if (ret_type != 'v') {
         read_return(L, ret_type, ret);
-        lua->settop(L, 0);
+        lua->settop(L, -2);
     }
 }
 

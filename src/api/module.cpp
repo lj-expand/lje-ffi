@@ -72,6 +72,31 @@ static int get_export(lua_State *L) {
   return 1;
 }
 
+// module.bind_export(handle: lightuserdata, name: string, signature: string) -> function | nil
+static int bind_export(lua_State* L) {
+  // It won't be pretty if we try to reuse functionality at the C++ level, so we'll just literally
+  // push the binding to the stack and call it, since this is not necessarily a hot path.
+  auto lua = g_api->lua;
+  auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
+  const char* export_name = lua->tolstring(L, 2, nullptr);
+  const char* signature = lua->tolstring(L, 3, nullptr);
+
+  const auto addr = reinterpret_cast<uintptr_t>(GetProcAddress(handle, export_name));
+  if (!addr) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  lua->pushljeenv(L);
+  lua->getfield(L, -1, "ffi");
+  lua->getfield(L, -1, "call");
+  lua->getfield(L, -1, "bind");
+  lua->pushnumber(L, static_cast<double>(addr));
+  lua->pushstring(L, signature);
+  lua->call(L, 2, 1);
+  return 1;
+}
+
 // module.exports(handle: lightuserdata) -> table {name = address, ...}
 static int exports(lua_State *L) {
   auto lua = g_api->lua;
@@ -251,6 +276,9 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(get_export), 0);
   lua->setfield(L, -2, "export");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(bind_export), 0);
+  lua->setfield(L, -2, "bind_export");
 
   lua->pushcclosure(L, reinterpret_cast<void *>(exports), 0);
   lua->setfield(L, -2, "exports");
