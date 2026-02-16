@@ -58,11 +58,14 @@ static bool pcall_or_original(lua_State* L, HookInfo* hook, void* ret, void** ar
     char ret_type = hook->signature[0];
     int nresults = (ret_type == 'v') ? 0 : 1;
 
+    g_in_ffi_hook = true;
     if (lua->pcall(L, static_cast<int>(1 + arg_count), nresults, 0) != LUA_OK) {
         lua->settop(L, -2);
+        g_in_ffi_hook = false;
         ffi_call(&hook->cif, reinterpret_cast<void(*)()>(hook->trampoline), ret, args);
         return false;
     }
+    g_in_ffi_hook = false;
 
     if (ret_type != 'v') {
         read_return(L, ret_type, ret);

@@ -295,6 +295,7 @@ inline void push_bound_closure(lua_State* L, const char* sig, uintptr_t address,
     lua->pushnumber(L, static_cast<double>(address));
     lua->pushlightuserdata(L, cached);
     lua->pushcclosure(L, reinterpret_cast<void*>(bound_dispatch), 3);
+    lua->mark_special(L, -1); /* mark this closure as special so it can be detected and handled properly in hooks */
 }
 
 } // namespace api::ffi_helpers

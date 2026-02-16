@@ -58,11 +58,14 @@ static void closure_handler(ffi_cif* cif, void* ret, void** args, void* userdata
     char ret_type = cb->signature[0];
     int nresults = (ret_type == 'v') ? 0 : 1;
 
+    g_in_ffi_hook = true;
     if (lua->pcall(L, static_cast<int>(arg_count), nresults, 0) != LUA_OK) {
         lua->settop(L, -2);
+        g_in_ffi_hook = false;
         if (ret) memset(ret, 0, cif->rtype->size);
         return;
     }
+    g_in_ffi_hook = false;
 
     if (ret_type != 'v') {
         read_return(L, ret_type, ret);

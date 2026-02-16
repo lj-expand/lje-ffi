@@ -14,6 +14,7 @@
 #include <lje_sdk.h>
 
 LjeApi *g_api = nullptr;
+bool g_in_ffi_hook = false;
 
 LJE_MODULE_INIT() {
   g_api = api;
