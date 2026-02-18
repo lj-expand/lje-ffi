@@ -3,11 +3,14 @@
 #include "../globals.hpp"
 
 #include <ffi.h>
+#include <csetjmp>
 #include <cstdint>
 #include <cstring>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+#include "mem.hpp"
 
 // Upvalue pseudo-indices (LuaJIT convention: GLOBALSINDEX - n)
 #define LJE_UPVALUEINDEX(n) (LUA_GLOBALSINDEX - (n))
@@ -257,6 +260,25 @@ inline int push_return(lua_State* L, char ret_type, uint64_t* ret_storage) {
 
 // --- Bound closure dispatch + creation ---
 
+inline const char* exception_code_to_string(DWORD code) {
+    switch (code) {
+    case EXCEPTION_ACCESS_VIOLATION:     return "access violation";
+    case EXCEPTION_GUARD_PAGE:           return "guard page violation";
+    case EXCEPTION_IN_PAGE_ERROR:        return "in-page error";
+    case EXCEPTION_ILLEGAL_INSTRUCTION:  return "illegal instruction";
+    case EXCEPTION_PRIV_INSTRUCTION:     return "privileged instruction";
+    case EXCEPTION_INT_DIVIDE_BY_ZERO:   return "integer divide by zero";
+    case EXCEPTION_INT_OVERFLOW:         return "integer overflow";
+    case EXCEPTION_FLT_DIVIDE_BY_ZERO:   return "float divide by zero";
+    case EXCEPTION_FLT_OVERFLOW:         return "float overflow";
+    case EXCEPTION_FLT_UNDERFLOW:        return "float underflow";
+    case EXCEPTION_FLT_INVALID_OPERATION:return "float invalid operation";
+    case EXCEPTION_STACK_OVERFLOW:       return "stack overflow";
+    case EXCEPTION_DATATYPE_MISALIGNMENT:return "datatype misalignment";
+    default:                             return "unknown exception";
+    }
+}
+
 // Generic dispatch for bound closures. Upvalues:
 //   1: signature (string)
 //   2: address (number)
@@ -281,10 +303,21 @@ inline int bound_dispatch(lua_State* L) {
     }
 
     uint64_t ret_storage = 0;
-    ffi_call(&cached->cif, reinterpret_cast<void(*)()>(address), &ret_storage,
-             arg_count ? arg_ptrs.data() : nullptr);
 
-    return push_return(L, ret_type, &ret_storage);
+    api::mem::t_protected = true;
+    if (setjmp(api::mem::t_jmp_buf) == 0) {
+        ffi_call(&cached->cif, reinterpret_cast<void(*)()>(address), &ret_storage,
+                 arg_count ? arg_ptrs.data() : nullptr);
+        api::mem::t_protected = false;
+        return push_return(L, ret_type, &ret_storage);
+    } else {
+        api::mem::t_protected = false;
+        DWORD code = api::mem::t_exception_code;
+        lua->pushboolean(L, 0);
+        lua->pushstring(L, exception_code_to_string(code));
+        lua->pushnumber(L, static_cast<double>(api::mem::t_exception_addr));
+        return 3;
+    }
 }
 
 // Pushes a bound closure onto the Lua stack.

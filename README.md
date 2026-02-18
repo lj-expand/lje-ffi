@@ -12,6 +12,8 @@ This is a powerful tool, and such issues are not the responsibility of the modul
 
 **You must be careful when using this module**, ensure every script you use with LJE is **vetted** and **trusted**. Do not use this module with untrusted scripts, as it can lead to severe security issues.
 
+However, *NO* foreign code can access the FFI module. The FFI module has active protection against this situation, so it is perfectly safe to use FFI while connected to an untrusted server, their Lua cannot interact with the FFI module at all.
+
 ## Modules
 
 - **mem** -- Read, write, and protect memory. Includes safe (`try_read_*`) variants that return nil instead of crashing on bad addresses. Also provides pattern scanning, pointer chain dereferencing, and heap enumeration.

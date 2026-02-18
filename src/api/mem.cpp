@@ -26,16 +26,54 @@ namespace api::mem {
 // addresses from Lua.
 thread_local jmp_buf t_jmp_buf;
 thread_local bool t_protected = false;
+thread_local DWORD t_exception_code = 0;
+thread_local uintptr_t t_exception_addr = 0;
 
-static bool is_preventable_exception(DWORD code) {
-  return code == EXCEPTION_ACCESS_VIOLATION || code == EXCEPTION_GUARD_PAGE ||
-         code == EXCEPTION_IN_PAGE_ERROR;
+static bool is_catchable_exception(DWORD code) {
+  switch (code) {
+  case EXCEPTION_ACCESS_VIOLATION:
+  case EXCEPTION_GUARD_PAGE:
+  case EXCEPTION_IN_PAGE_ERROR:
+  case EXCEPTION_ILLEGAL_INSTRUCTION:
+  case EXCEPTION_PRIV_INSTRUCTION:
+  case EXCEPTION_INT_DIVIDE_BY_ZERO:
+  case EXCEPTION_INT_OVERFLOW:
+  case EXCEPTION_FLT_DIVIDE_BY_ZERO:
+  case EXCEPTION_FLT_OVERFLOW:
+  case EXCEPTION_FLT_UNDERFLOW:
+  case EXCEPTION_FLT_INVALID_OPERATION:
+  case EXCEPTION_STACK_OVERFLOW:
+  case EXCEPTION_DATATYPE_MISALIGNMENT:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static void __declspec(noinline) veh_perform_longjmp(jmp_buf* buf) {
+  longjmp(*buf, 1);
 }
 
 static LONG WINAPI veh_handler(EXCEPTION_POINTERS *ep) {
-  if (t_protected && is_preventable_exception(ep->ExceptionRecord->ExceptionCode)) {
-    longjmp(t_jmp_buf, 1);
+  if (t_protected && is_catchable_exception(ep->ExceptionRecord->ExceptionCode)) {
+    t_exception_code = ep->ExceptionRecord->ExceptionCode;
+    t_exception_addr = reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress);
+    /* unwind stack to our perform longjmp call, which will
+     * jump back to the protected code with setjmp without
+     * causing any stack corruption issues. */
+
+    auto ctx = ep->ContextRecord;
+    ctx->Rip = reinterpret_cast<DWORD64>(veh_perform_longjmp);
+    ctx->Rcx = reinterpret_cast<DWORD64>(&t_jmp_buf);
+    ctx->Rsp &= ~(DWORD64)0xF; /* win64 requires 16-byte stack alignment */
+    ctx->Rsp -= 32; /* spill space */
+    ctx->Rsp -= 8; /* reserve ret address */
+    *(DWORD64*)ctx->Rsp = 0xDEADBEEF13376767;
+
+    /* stack should be good to go */
+    return EXCEPTION_CONTINUE_EXECUTION;
   }
+
   return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -782,6 +820,21 @@ static int addr_to_pat(lua_State *L) {
   return 1;
 }
 
+// mem.to_binary_string(addr: number, size: number) -> string
+static int to_binary_string(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+  auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
+  auto size = static_cast<size_t>(lua->tonumber(L, 2));
+
+  const char *data = reinterpret_cast<const char *>(addr);
+  /* LuaJIT strings are binary-aware, so we can just push the raw data as a string.
+   * Very useful for saving memory dumps, etc. */
+
+  lua->pushlstring(L, data, size);
+  return 1;
+}
+
 void register_all(lua_State *L) {
   auto lua = g_api->lua;
 
@@ -976,6 +1029,9 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(addr_to_pat), 0);
   lua->setfield(L, -2, "addr_to_pat");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(to_binary_string), 0);
+  lua->setfield(L, -2, "to_binary_string");
 
   lua->setfield(L, -2, "mem");
 }
