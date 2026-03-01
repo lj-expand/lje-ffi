@@ -68,10 +68,14 @@ static LONG WINAPI veh_handler(EXCEPTION_POINTERS *ep) {
     ctx->Rsp &= ~(DWORD64)0xF; /* win64 requires 16-byte stack alignment */
     ctx->Rsp -= 32; /* spill space */
     ctx->Rsp -= 8; /* reserve ret address */
-    *(DWORD64*)ctx->Rsp = 0xDEADBEEF13376767;
+    *(DWORD64*)ctx->Rsp = 0x6767676767676767;
 
     /* stack should be good to go */
     return EXCEPTION_CONTINUE_EXECUTION;
+  } else if (t_protected) {
+    /* we got an exception that we weren't prepared to handle, but we're still in protected mode. */
+    /* before dying, just let the user know what happened instead of silently crashing. */
+    printf("[LJE-FFI] Unhandled exception in protected code: 0x%X at 0x%p\n", ep->ExceptionRecord->ExceptionCode, ep->ExceptionRecord->ExceptionAddress);
   }
 
   return EXCEPTION_CONTINUE_SEARCH;
