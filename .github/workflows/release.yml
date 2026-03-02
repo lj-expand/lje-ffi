@@ -43,4 +43,4 @@ jobs:
           tag_name: v${{ steps.changelog.outputs.version }}
           body: ${{ steps.changelog.outputs.changes }}
           files: |
-            build/x64-windows-rel/lje-module-template.dll
+            build/x64-windows-rel/lje-ffi.dll
