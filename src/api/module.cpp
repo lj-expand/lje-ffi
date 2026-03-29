@@ -6,10 +6,31 @@
 #include "../util/sigmask.hpp"
 #include "../util/sigscan.hpp"
 
+#include <DbgHelp.h>
+
 #include <cstdio>
+#include <cstring>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace api::module {
+
+// MSVC x64 RTTI structures
+struct RTTICompleteObjectLocator {
+  uint32_t signature;       // 1 on x64
+  uint32_t offset;
+  uint32_t cdOffset;
+  uint32_t pTypeDescriptor; // RVA from image base
+  uint32_t pClassHierarchy; // RVA from image base
+  uint32_t pSelf;           // RVA to this COL (x64 only)
+};
+
+struct RTTITypeDescriptor {
+  void    *pVFTable;        // pointer to type_info's vtable
+  void    *spare;
+  char     name[1];         // mangled name, e.g. ".?AVFoo@@"
+};
 
 // module.find(name: string) -> lightuserdata | nil
 static int find(lua_State *L) {
@@ -240,6 +261,27 @@ static int scan(lua_State *L) {
   return 1;
 }
 
+// module.is_system(handle: lightuserdata) -> boolean
+static int is_system(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+  auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
+
+  char mod_path[MAX_PATH];
+  if (!GetModuleFileNameExA(GetCurrentProcess(), handle, mod_path, MAX_PATH)) {
+    lua->pushboolean(L, false);
+    return 1;
+  }
+
+  char win_dir[MAX_PATH];
+  UINT win_dir_len = GetWindowsDirectoryA(win_dir, MAX_PATH);
+
+  bool result = win_dir_len > 0 &&
+                _strnicmp(mod_path, win_dir, win_dir_len) == 0;
+  lua->pushboolean(L, result);
+  return 1;
+}
+
 // module.sections(handle: lightuserdata) -> table { {name, base, size, characteristics}, ... }
 static int sections(lua_State *L) {
   auto lua = g_api->lua;
@@ -269,10 +311,229 @@ static int sections(lua_State *L) {
   return 1;
 }
 
+// Demangles an MSVC RTTI type descriptor name (e.g. ".?AVIRecipientFilter@@" -> "IRecipientFilter").
+//
+// RTTI name format: .?A<kind><components>@@
+//   kind:       V=class, U=struct, W=enum, T=union, ...
+//   components: @-separated name parts, innermost first  e.g. "Foo@MyNS@" -> "MyNS::Foo"
+//
+// UnDecorateSymbolName does not understand the RTTI type-descriptor format directly —
+// passing "?AVFoo@@" leaves "AV" in the output. We therefore strip ".?A<kind>" ourselves
+// and only delegate to DbgHelp for template names (?$...), where we wrap the template name
+// in a dummy function signature that DbgHelp can decode into e.g. "NS::Foo<int>".
+static std::string demangle_rtti_name(const char *mangled) {
+  if (!mangled) return "";
+
+  // Regular decorated name (export, symbol) — pass straight to DbgHelp.
+  if (mangled[0] == '?') {
+    char buf[2048];
+    if (UnDecorateSymbolName(mangled, buf, sizeof(buf), UNDNAME_NAME_ONLY))
+      return buf;
+    return mangled;
+  }
+
+  if (mangled[0] != '.' || mangled[1] != '?' || mangled[2] != 'A')
+    return mangled;
+
+  // Skip ".?A<kind>" — 4 chars total (dot, question, A, type indicator)
+  const char *name_start = mangled + 4;
+
+  if (name_start[0] == '?' && name_start[1] == '$') {
+    // Template type. Construct a dummy __cdecl void() function mangled name so DbgHelp
+    // can decode the template parameters. e.g. "?$Foo@H@NS@@" -> "??$Foo@H@NS@@YAXXZ"
+    // which UnDecorateSymbolName(UNDNAME_NAME_ONLY) decodes to "NS::Foo<int>".
+    std::string wrapper;
+    wrapper.reserve(strlen(name_start) + 8);
+    wrapper  = '?';      // decorated name start
+    wrapper += name_start; // "?$Foo@H@NS@@"
+    wrapper += "YAXXZ"; // dummy: __cdecl, returns void, no params
+
+    char buf[2048];
+    if (UnDecorateSymbolName(wrapper.c_str(), buf, sizeof(buf), UNDNAME_NAME_ONLY))
+      return buf;
+
+    // DbgHelp failed — at least return the template class name without params
+    const char *end = strchr(name_start + 2, '@');
+    return end ? std::string(name_start + 2, end) + "<...>" : std::string(name_start + 2);
+  }
+
+  // Non-template: split on '@' and reverse components for "Outer::Inner" order.
+  std::vector<std::string> parts;
+  const char *start = name_start;
+  for (const char *p = name_start; *p; ++p) {
+    if (*p == '@') {
+      if (p == start) break; // empty component = @@ terminator
+      std::string comp(start, p - start);
+      // Anonymous namespace encodes as "?A0x<hex>" — normalise it.
+      if (comp.size() >= 2 && comp[0] == '?' && comp[1] == 'A')
+        comp = "(anonymous namespace)";
+      parts.push_back(std::move(comp));
+      start = p + 1;
+    }
+  }
+
+  if (parts.empty()) return mangled;
+
+  std::string result;
+  for (int i = static_cast<int>(parts.size()) - 1; i >= 0; --i) {
+    if (!result.empty()) result += "::";
+    result += parts[i];
+  }
+  return result;
+}
+
+// module.demangle(name: string) -> string
+// Demangles an MSVC RTTI type descriptor name.
+static int demangle(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+  const char *mangled = lua->tolstring(L, 1, nullptr);
+  auto result = demangle_rtti_name(mangled);
+  lua->pushstring(L, result.c_str());
+  return 1;
+}
+
+// module.rtti_classes(handle: lightuserdata) -> table { {name, col, td, vtable?}, ... }
+// Enumerates all MSVC RTTI classes in the module's .rdata section.
+// Requires RTTI to be enabled (/GR) in the target module.
+// For classes with multiple inheritance, multiple entries may share the same name
+// (one per COL/vtable, as each base subobject gets its own COL).
+static int rtti_classes(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+  auto handle = static_cast<HMODULE>(lua->tolightuserdata(L, 1));
+
+  auto info = util::get_module_info(handle);
+  if (!info.valid()) {
+    lua->createtable(L, 0, 0);
+    return 1;
+  }
+
+  const uintptr_t base    = info.base;
+  const uintptr_t mod_end = base + info.size;
+
+  auto rdata = util::find_module_section(handle, ".rdata");
+  if (rdata.size == 0) {
+    lua->createtable(L, 0, 0);
+    return 1;
+  }
+
+  struct ClassEntry {
+    uintptr_t   col;
+    uintptr_t   td;
+    uintptr_t   vtable; // 0 if not found
+    const char *name;   // points into mapped module memory
+  };
+
+  std::vector<ClassEntry> entries;
+  std::unordered_map<uintptr_t, size_t> col_to_idx;
+
+  const uintptr_t rdata_start = rdata.base;
+  const uintptr_t rdata_end   = rdata.base + rdata.size;
+
+  // Pass 1: find all valid COLs.
+  // A COL is valid if signature == 1 and base + pSelf == col_address.
+  for (uintptr_t cursor = rdata_start; cursor + sizeof(RTTICompleteObjectLocator) <= rdata_end; cursor += 4) {
+    auto col = reinterpret_cast<const RTTICompleteObjectLocator *>(cursor);
+
+    if (col->signature != 1 || col->pSelf == 0)
+      continue;
+    if (base + static_cast<uintptr_t>(col->pSelf) != cursor)
+      continue;
+    if (col->pTypeDescriptor == 0)
+      continue;
+
+    uintptr_t td_addr = base + static_cast<uintptr_t>(col->pTypeDescriptor);
+    // Validate td is within the module and large enough to hold the fixed fields + at least ".?A\0"
+    if (td_addr < base || td_addr + sizeof(RTTITypeDescriptor) + 3 > mod_end)
+      continue;
+
+    auto td = reinterpret_cast<const RTTITypeDescriptor *>(td_addr);
+    const char *name = td->name;
+
+    // All MSVC RTTI names start with ".?A" (.?AV = class, .?AU = struct, .?AW = enum, etc.)
+    if (name[0] != '.' || name[1] != '?' || name[2] != 'A')
+      continue;
+
+    size_t idx = entries.size();
+    col_to_idx[cursor] = idx;
+    entries.push_back({cursor, td_addr, 0, name});
+  }
+
+  // Pass 2: scan all non-executable data sections for 8-byte-aligned pointers to any COL.
+  // The 8 bytes immediately before a vtable contain a pointer to its COL.
+  // So: vtable = backpointer_address + 8.
+  // We scan beyond .rdata because some builds (especially games that hot-patch vtables)
+  // emit vtables in .data (read-write) rather than .rdata (read-only).
+  auto all_sections = util::get_module_sections(handle);
+  for (const auto &sec : all_sections) {
+    // Skip executable sections — vtable backpointers are never in code.
+    if (sec.characteristics & IMAGE_SCN_MEM_EXECUTE)
+      continue;
+    // Skip empty sections.
+    if (sec.size < 8)
+      continue;
+
+    uintptr_t sec_start = sec.base;
+    uintptr_t sec_end   = sec.base + sec.size;
+
+    // Align start up to 8-byte boundary.
+    uintptr_t p2_start = (sec_start + 7) & ~uintptr_t(7);
+
+    for (uintptr_t cursor = p2_start; cursor + 8 <= sec_end; cursor += 8) {
+      uintptr_t val = *reinterpret_cast<const uintptr_t *>(cursor);
+      auto it = col_to_idx.find(val);
+      if (it == col_to_idx.end())
+        continue;
+      entries[it->second].vtable = cursor + 8;
+    }
+  }
+
+  // Build Lua table
+  lua->createtable(L, static_cast<int>(entries.size()), 0);
+  for (size_t i = 0; i < entries.size(); i++) {
+    const auto &e = entries[i];
+    lua->createtable(L, 0, 4);
+
+    lua->pushstring(L, e.name);
+    lua->setfield(L, -2, "name");
+
+    lua->pushnumber(L, static_cast<double>(e.col));
+    lua->setfield(L, -2, "col");
+
+    lua->pushnumber(L, static_cast<double>(e.td));
+    lua->setfield(L, -2, "td");
+
+    if (e.vtable != 0) {
+      lua->pushnumber(L, static_cast<double>(e.vtable));
+      lua->setfield(L, -2, "vtable");
+    }
+
+    lua->rawseti(L, -2, static_cast<int>(i + 1));
+  }
+  return 1;
+}
+
+// module.get_from_addr(addr: number) -> lightuserdata | nil
+// Fetches what module (if any) the given address belongs to.
+static int get_from_addr(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+  auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
+
+  HMODULE handle = nullptr;
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, reinterpret_cast<LPCSTR>(addr), &handle)) {
+    lua->pushlightuserdata(L, handle);
+    return 1;
+  }
+
+  return 0;
+}
+
 void register_all(lua_State *L) {
   auto lua = g_api->lua;
 
-  lua->createtable(L, 0, 7);
+  lua->createtable(L, 0, 8);
 
   lua->pushcclosure(L, reinterpret_cast<void *>(find), 0);
   lua->setfield(L, -2, "find");
@@ -303,6 +564,18 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(sections), 0);
   lua->setfield(L, -2, "sections");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(is_system), 0);
+  lua->setfield(L, -2, "is_system");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(rtti_classes), 0);
+  lua->setfield(L, -2, "rtti_classes");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(demangle), 0);
+  lua->setfield(L, -2, "demangle");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(get_from_addr), 0);
+  lua->setfield(L, -2, "get_from_addr");
 
   lua->setfield(L, -2, "module");
 }

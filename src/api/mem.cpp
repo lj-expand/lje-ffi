@@ -44,6 +44,8 @@ static bool is_catchable_exception(DWORD code) {
   case EXCEPTION_FLT_INVALID_OPERATION:
   case EXCEPTION_STACK_OVERFLOW:
   case EXCEPTION_DATATYPE_MISALIGNMENT:
+  case 0xC00000FF: /* I don't.. know what this is? But it seems to be thrown by some invalid memory accesses that don't trigger an access violation for some reason, so let's catch it just in case. */
+  case 0xE0004C4A: /* This is our custom exception code for watchdog timeouts, which we also want to catch and handle gracefully. */
     return true;
   default:
     return false;
@@ -58,17 +60,30 @@ static LONG WINAPI veh_handler(EXCEPTION_POINTERS *ep) {
   if (t_protected && is_catchable_exception(ep->ExceptionRecord->ExceptionCode)) {
     t_exception_code = ep->ExceptionRecord->ExceptionCode;
     t_exception_addr = reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress);
-    /* unwind stack to our perform longjmp call, which will
-     * jump back to the protected code with setjmp without
-     * causing any stack corruption issues. */
-
     auto ctx = ep->ContextRecord;
-    ctx->Rip = reinterpret_cast<DWORD64>(veh_perform_longjmp);
-    ctx->Rcx = reinterpret_cast<DWORD64>(&t_jmp_buf);
-    ctx->Rsp &= ~(DWORD64)0xF; /* win64 requires 16-byte stack alignment */
-    ctx->Rsp -= 32; /* spill space */
-    ctx->Rsp -= 8; /* reserve ret address */
-    *(DWORD64*)ctx->Rsp = 0x6767676767676767;
+    // So, originally we did longjmp, but on x64 Windows,
+    // RtlUnwindEx expects there to be a valid stack frame to unwind through,
+    // and this won't be true for the cases where we're protecting an entire
+    // function call into the engine or anything else.
+    // We'll just directly fix the register state instead of unwinding.
+
+    auto buf = reinterpret_cast<DWORD64*>(&t_jmp_buf);
+
+    ctx->Rbx = buf[1];
+    ctx->Rsp = buf[2];
+    ctx->Rbp = buf[3];
+    ctx->Rsi = buf[4];
+    ctx->Rdi = buf[5];
+    ctx->R12 = buf[6];
+    ctx->R13 = buf[7];
+    ctx->R14 = buf[8];
+    ctx->R15 = buf[9];
+    ctx->Rip = buf[10];
+
+    ctx->MxCsr = static_cast<DWORD>(buf[11]);
+    ctx->FltSave.ControlWord = static_cast<WORD>(buf[12]);
+
+    ctx->Rax = 1; // setjmp "returns" 1
 
     /* stack should be good to go */
     return EXCEPTION_CONTINUE_EXECUTION;
@@ -129,6 +144,18 @@ static int fill(lua_State *L) {
   auto value = static_cast<int>(lua->tonumber(L, 2));
   auto size = static_cast<size_t>(lua->tonumber(L, 3));
   memset(reinterpret_cast<void *>(addr), value, size);
+  return 0;
+}
+
+// mem.copy_from_string(dest: number, str: string)
+// Assumes these are binary strings, i.e., ones that contain null bytes.
+static int copy_from_string(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+  auto dest = static_cast<uintptr_t>(lua->tonumber(L, 1));
+  size_t len;
+  auto src = lua->tolstring(L, 2, &len);
+  memcpy(reinterpret_cast<void *>(dest), src, len);
   return 0;
 }
 
@@ -858,6 +885,9 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(fill), 0);
   lua->setfield(L, -2, "fill");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(copy_from_string), 0);
+  lua->setfield(L, -2, "copy_from_string");
 
   // Reads
   lua->pushcclosure(L, reinterpret_cast<void *>(read_u8), 0);

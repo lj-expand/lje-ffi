@@ -75,6 +75,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
   ${libffi_SOURCE_DIR}/libffi-8.lib
   psapi
+  dbghelp
   capstone
   minhook
 )

@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../util/watchdog.hpp"
 #include "mem.hpp"
 
 // Upvalue pseudo-indices (LuaJIT convention: GLOBALSINDEX - n)
@@ -275,16 +276,31 @@ inline const char* exception_code_to_string(DWORD code) {
     case EXCEPTION_FLT_INVALID_OPERATION:return "float invalid operation";
     case EXCEPTION_STACK_OVERFLOW:       return "stack overflow";
     case EXCEPTION_DATATYPE_MISALIGNMENT:return "datatype misalignment";
+    case 0xC00000FF:                     return "unknown memory access error";
+    case 0xE0004C4A:                     return "watchdog timeout";
     default:                             return "unknown exception";
     }
+}
+
+// This is a must as the callee-saved registers at the setjmp might get thrashed completely.
+thread_local static lua_State* t_exception_jmp_buf_lua_state = nullptr; /* So no stack clobbering can affect this. */
+static int __declspec(noinline) handle_exception() {
+  auto lua = g_api->lua;
+  auto* L = t_exception_jmp_buf_lua_state;
+  DWORD code = api::mem::t_exception_code;
+  lua->pushboolean(L, 0);
+  lua->pushstring(L, exception_code_to_string(code));
+  lua->pushnumber(L, static_cast<double>(api::mem::t_exception_addr));
+  return 3;
 }
 
 // Generic dispatch for bound closures. Upvalues:
 //   1: signature (string)
 //   2: address (number)
 //   3: CachedCif* (lightuserdata)
-inline int bound_dispatch(lua_State* L) {
+inline int bound_dispatch(lua_State* volatile L) {
     auto lua = g_api->lua;
+    t_exception_jmp_buf_lua_state = L; /* set the thread-local lua_State for exception handling */
 
     const char* sig = lua->tolstring(L, LJE_UPVALUEINDEX(1), nullptr);
     auto address = static_cast<uintptr_t>(lua->tonumber(L, LJE_UPVALUEINDEX(2)));
@@ -305,18 +321,20 @@ inline int bound_dispatch(lua_State* L) {
     uint64_t ret_storage = 0;
 
     api::mem::t_protected = true;
+    api::mem::g_protected_shared.store(true, std::memory_order_release);
     if (setjmp(api::mem::t_jmp_buf) == 0) {
+        watchdog::arm(100); /* 100ms timeout - anytihng else reeks of hang */
         ffi_call(&cached->cif, reinterpret_cast<void(*)()>(address), &ret_storage,
                  arg_count ? arg_ptrs.data() : nullptr);
+        watchdog::disarm();
         api::mem::t_protected = false;
+        api::mem::g_protected_shared.store(false, std::memory_order_release);
         return push_return(L, ret_type, &ret_storage);
     } else {
+        watchdog::disarm();
         api::mem::t_protected = false;
-        DWORD code = api::mem::t_exception_code;
-        lua->pushboolean(L, 0);
-        lua->pushstring(L, exception_code_to_string(code));
-        lua->pushnumber(L, static_cast<double>(api::mem::t_exception_addr));
-        return 3;
+        api::mem::g_protected_shared.store(false, std::memory_order_release);
+        return handle_exception(); // Stack can be completely clobbered at this point.
     }
 }
 

@@ -6,6 +6,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <Windows.h>
+#include <atomic>
 
 namespace api::mem {
 
@@ -14,6 +15,8 @@ extern thread_local jmp_buf t_jmp_buf;
 extern thread_local bool t_protected;
 extern thread_local DWORD t_exception_code;
 extern thread_local uintptr_t t_exception_addr;
+// Cross-thread state (for watchdog)
+inline std::atomic<bool> g_protected_shared { false };
 
 void install_veh();
 void register_all(lua_State *L);

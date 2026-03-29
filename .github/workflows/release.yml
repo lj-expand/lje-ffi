@@ -35,7 +35,6 @@ jobs:
         with:
           path: ./CHANGELOG.md
 
-      # TODO: Replace 'lje-module-template' with your project name
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
@@ -44,3 +43,4 @@ jobs:
           body: ${{ steps.changelog.outputs.changes }}
           files: |
             build/x64-windows-rel/lje-ffi.dll
+            build/x64-windows-rel/libffi-8.dll

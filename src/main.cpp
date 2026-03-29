@@ -1,12 +1,13 @@
 #define LJE_SDK_IMPLEMENTATION
 #include "api/call.hpp"
-#include "api/disasm.hpp"
 #include "api/callback.hpp"
+#include "api/disasm.hpp"
 #include "api/hook.hpp"
 #include "api/mem.hpp"
 #include "api/module.hpp"
 #include "api/struct.hpp"
 #include "api/vtable.hpp"
+#include "util/watchdog.hpp"
 #include "version.h"
 
 #include <cstdio>
@@ -28,6 +29,9 @@ LJE_MODULE_INIT() {
 }
 
 LJE_MODULE_PREINIT() {
+  api::watchdog::init();
+  printf("[LJE]: Watchdog initialized!\n");
+
   const auto* lua = g_api->lua;
   lua->pushljeenv(L);
   lua->createtable(L, 0, 0);
@@ -47,6 +51,7 @@ LJE_MODULE_PREINIT() {
 
 LJE_MODULE_SHUTDOWN() {
   g_api = nullptr;
+  api::watchdog::shutdown();
 
   return LJE_RESULT_OK;
 }

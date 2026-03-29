@@ -6,6 +6,11 @@
 #include <cstdint>
 #include <vector>
 
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#include <string>
+#include "../util/sigmask.hpp"
+
 namespace api::disasm {
 
 static csh s_handle = 0;
@@ -131,6 +136,37 @@ static int at(lua_State *L) {
   if (disasm_count > 0) {
     cs_free(insns, disasm_count);
   }
+
+  return 1;
+}
+
+// disasm.at_bytes(address: number, byte_count: number) -> table of instructions
+// Like disasm.at but the second argument is a byte limit, not an instruction count.
+// Pairs naturally with disasm.size.
+static int at_bytes(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+
+  if (!ensure_init()) {
+    lua->createtable(L, 0, 0);
+    return 1;
+  }
+
+  auto addr       = static_cast<uintptr_t>(lua->tonumber(L, 1));
+  auto byte_count = static_cast<size_t>(lua->tonumber(L, 2));
+
+  cs_insn *insns;
+  size_t count = cs_disasm(s_handle, reinterpret_cast<const uint8_t *>(addr),
+                           byte_count, addr, 0, &insns);
+
+  lua->createtable(L, static_cast<int>(count), 0);
+  for (size_t i = 0; i < count; i++) {
+    push_instruction(L, &insns[i]);
+    lua->rawseti(L, -2, static_cast<int>(i + 1));
+  }
+
+  if (count > 0)
+    cs_free(insns, count);
 
   return 1;
 }
@@ -281,6 +317,97 @@ static int pull_calls(lua_State* L) {
   return 1;
 }
 
+// disasm.size(address: number) -> number | nil
+// Returns the size in bytes of the function containing the given address.
+//
+// Primary:  RtlLookupFunctionEntry reads the .pdata RUNTIME_FUNCTION table.
+// Fallback: Capstone linear sweep stopping at the first INT3 (inter-function padding),
+//           used for leaf functions which have no .pdata entry.
+//           Returns nil if neither method produces a result.
+static int func_size(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+
+  if (!ensure_init()) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  const auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
+
+  // .pdata gives an upper bound. With PGO/LTCG, MSVC may split a function into
+  // hot and cold segments both covered by the same RUNTIME_FUNCTION entry, with
+  // INT3 padding between them — so EndAddress can overshoot. We use the .pdata
+  // size as the scan limit and clamp at the first INT3.
+  DWORD64 image_base = 0;
+  PRUNTIME_FUNCTION rf = RtlLookupFunctionEntry(static_cast<DWORD64>(addr), &image_base, nullptr);
+  size_t scan_limit = rf ? static_cast<size_t>(rf->EndAddress - rf->BeginAddress) : 0x1000;
+
+  cs_insn *insns;
+  size_t count = cs_disasm(s_handle, reinterpret_cast<const uint8_t *>(addr),
+                           scan_limit, addr, 0, &insns);
+  if (count == 0) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  // A single INT3 mid-function is a legitimate __debugbreak() or assert trap.
+  // Padding INT3s are distinguishable because they appear either:
+  //   (a) after a RET or unconditional JMP (unreachable position), or
+  //   (b) as two or more consecutive INT3s (alignment fill).
+  size_t size = 0;
+  for (size_t i = 0; i < count; i++) {
+    if (insns[i].id != X86_INS_INT3)
+      continue;
+
+    bool after_terminator = i > 0 && (insns[i - 1].id == X86_INS_RET  ||
+                                       insns[i - 1].id == X86_INS_RETF ||
+                                       insns[i - 1].id == X86_INS_JMP);
+    bool padding_run = i + 1 < count && insns[i + 1].id == X86_INS_INT3;
+
+    if (after_terminator || padding_run) {
+      size = static_cast<size_t>(insns[i].address - addr);
+      break;
+    }
+  }
+
+  // No INT3 found within the range — .pdata size was clean, use it directly.
+  if (size == 0 && rf)
+    size = scan_limit;
+
+  cs_free(insns, count);
+
+  if (size == 0) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  lua->pushnumber(L, static_cast<double>(size));
+  return 1;
+}
+
+// disasm.autosig(address: number, size: number) -> string | nil
+// Auto-masks a function's bytes to produce a signature with wildcards.
+static int autosig(lua_State* L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+
+  const auto addr = static_cast<uintptr_t>(lua->tonumber(L, 1));
+  const auto size = static_cast<size_t>(lua->tonumber(L, 2));
+
+  std::vector<uint8_t> bytes(size);
+  memcpy(bytes.data(), reinterpret_cast<void*>(addr), size);
+
+  std::string sig = util::auto_mask_pattern(bytes);
+  if (sig.empty()) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  lua->pushstring(L, sig.c_str());
+  return 1;
+}
+
 void register_all(lua_State *L) {
   auto lua = g_api->lua;
 
@@ -288,6 +415,9 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(at), 0);
   lua->setfield(L, -2, "at");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(at_bytes), 0);
+  lua->setfield(L, -2, "at_bytes");
 
   lua->pushcclosure(L, reinterpret_cast<void *>(pull_global), 0);
   lua->setfield(L, -2, "pull_global");
@@ -297,6 +427,12 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(pull_calls), 0);
   lua->setfield(L, -2, "pull_calls");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(func_size), 0);
+  lua->setfield(L, -2, "size");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(autosig), 0);
+  lua->setfield(L, -2, "autosig");
 
   lua->setfield(L, -2, "disasm");
 }
