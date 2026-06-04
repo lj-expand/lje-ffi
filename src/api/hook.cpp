@@ -1,5 +1,6 @@
 #include "hook.hpp"
 #include "../util/call-auth.hpp"
+#include "../util/minhook-shared.hpp"
 #include "ffi-helpers.hpp"
 
 #include <MinHook.h>
@@ -14,8 +15,6 @@ using namespace api::ffi_helpers;
 
 namespace api::hook {
 
-static bool s_mh_initialized = false;
-static DWORD s_main_thread_id = 0;
 static int s_metatable_ref = LUA_NOREF;
 
 struct HookInfo {
@@ -81,7 +80,7 @@ static void call_original(HookInfo* hook, void* ret, void** args) {
 
 // Returns the Lua state if the hook should proceed, or nullptr if it should fall through to original
 static lua_State* check_hook_preconditions(HookInfo* hook, void* ret, void** args) {
-    if (GetCurrentThreadId() != s_main_thread_id) {
+    if (GetCurrentThreadId() != minhook_shared::main_thread_id()) {
         printf("[LJE FFI]: Warning - Lua hook called from a different thread! This is unsafe. Calling original function.\n");
         call_original(hook, ret, args);
         return nullptr;
@@ -128,8 +127,9 @@ static void cleanup_hook(HookInfo* hook, lua_State* L) {
 
     hook->destroyed = true;
 
-    // Remove from tracking map
+    // Remove from tracking map + shared registry
     s_hooks.erase(hook->target);
+    minhook_shared::release_target(hook->target);
 
     if (hook->enabled) {
         MH_DisableHook(reinterpret_cast<void*>(hook->target));
@@ -163,25 +163,16 @@ static int gc(lua_State* L) {
     return 0;
 }
 
-static void ensure_mh_initialized() {
-    if (!s_mh_initialized) {
-        if (MH_Initialize() != MH_OK) return;
-        s_mh_initialized = true;
-        s_main_thread_id = GetCurrentThreadId();
-    }
-}
-
 // Shared hook setup logic. Returns the HookInfo on success (already enabled and tracked), or nullptr.
 static HookInfo* setup_hook(lua_State* L, uintptr_t target, const char* sig,
                             void (*handler)(ffi_cif*, void*, void**, void*)) {
     auto lua = g_api->lua;
 
-    ensure_mh_initialized();
-    if (!s_mh_initialized) return nullptr;
+    if (!minhook_shared::ensure_initialized()) return nullptr;
 
     s_lua_state = L;
 
-    if (s_hooks.count(target)) return nullptr;
+    if (minhook_shared::is_target_claimed(target)) return nullptr;
 
     char ret_type = sig[0];
     const char* arg_types_str = sig + 1;
@@ -247,6 +238,7 @@ static HookInfo* setup_hook(lua_State* L, uintptr_t target, const char* sig,
 
     hook->enabled = true;
     s_hooks[target] = hook;
+    minhook_shared::claim_target(target);
 
     return hook;
 }
