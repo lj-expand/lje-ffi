@@ -282,6 +282,51 @@ static bool load_libtcc(const std::wstring& cache) {
     return true;
 }
 
+// TCC resolves printf/puts/etc. against the legacy msvcrt.dll it loads itself,
+// which keeps its *own* stdout/stderr - separate from the host module's UCRT
+// streams that the "[LJE] ..." messages travel through. Freshly loaded, that
+// msvcrt's stdout is not attached to the live console, so anything compiled
+// code prints is written into a dead stream and silently dropped (the call to
+// printf really happens - the bytes just have nowhere to land).
+//
+// We fix this with a tiny helper compiled by TCC itself, so it links against
+// the exact same msvcrt instance user code uses (no fragile sizeof(FILE) /
+// _iob offset guessing from the host side). It binds those streams to the
+// current console and turns buffering off. Best-effort: if it fails, printf
+// simply stays quiet as before.
+static void wire_tcc_stdio() {
+    static const char* FIXUP = R"FIX(
+#include <stdio.h>
+int AllocConsole(void);
+void __lje_wire_stdio(void) {
+    AllocConsole();                   /* no-op if a console already exists */
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+    setvbuf(stdout, NULL, _IONBF, 0); /* unbuffered: printf shows immediately */
+    setvbuf(stderr, NULL, _IONBF, 0);
+}
+)FIX";
+
+    TCCState* s = T.tcc_new();
+    if (!s) return;
+
+    T.tcc_set_lib_path(s, s_lib_path_acp.c_str());
+    T.tcc_add_sysinclude_path(s, s_include_path_acp.c_str());
+    T.tcc_add_include_path(s, s_include_path_acp.c_str());
+    T.tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
+
+    if (T.tcc_compile_string(s, FIXUP) >= 0 &&
+        T.tcc_relocate(s, TCC_RELOCATE_AUTO) >= 0) {
+        auto fn = reinterpret_cast<void (*)(void)>(
+            T.tcc_get_symbol(s, "__lje_wire_stdio"));
+        if (fn) fn();
+    }
+
+    // The helper only mutated msvcrt's global streams, so freeing its code now
+    // is safe - the reopened stdout/stderr persist in msvcrt itself.
+    T.tcc_delete(s);
+}
+
 static bool ensure_runtime() {
     if (s_runtime_ready) return true;
 
@@ -306,6 +351,11 @@ static bool ensure_runtime() {
 
     s_lib_path_acp = wide_to_acp(cache);
     s_include_path_acp = wide_to_acp(cache + L"\\include");
+
+    // Bind msvcrt's stdout/stderr to the console so compiled-code printf is
+    // actually visible. Needs the lib/include paths set above.
+    wire_tcc_stdio();
+
     s_runtime_ready = true;
     return true;
 }
