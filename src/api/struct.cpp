@@ -167,6 +167,23 @@ static std::vector<Token> tokenize(const char *input) {
     if (!*p)
       break;
 
+    // Skip C-style line comments: // ...
+    if (*p == '/' && *(p + 1) == '/') {
+      while (*p && *p != '\n')
+        p++;
+      continue;
+    }
+
+    // Skip C-style block comments: /* ... */
+    if (*p == '/' && *(p + 1) == '*') {
+      p += 2;
+      while (*p && !(*p == '*' && *(p + 1) == '/'))
+        p++;
+      if (*p)
+        p += 2; // skip closing */
+      continue;
+    }
+
     if (*p == '{') {
       tokens.push_back({TokenType::LBrace, "{"});
       p++;

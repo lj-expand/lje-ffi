@@ -1,11 +1,13 @@
 #define LJE_SDK_IMPLEMENTATION
 #include "api/call.hpp"
 #include "api/callback.hpp"
+#include "api/detour.hpp"
 #include "api/disasm.hpp"
 #include "api/hook.hpp"
 #include "api/mem.hpp"
 #include "api/module.hpp"
 #include "api/struct.hpp"
+#include "api/tcc.hpp"
 #include "api/vtable.hpp"
 #include "util/watchdog.hpp"
 #include "version.h"
@@ -43,6 +45,8 @@ LJE_MODULE_PREINIT() {
   api::vtable::register_all(L);
   api::hook::register_all(L);
   api::callback::register_all(L);
+  api::tcc::register_all(L);
+  api::detour::register_all(L);
   lua->setfield(L, -2, "ffi");
   lua->pop(L, 1); // Pop lje env
 

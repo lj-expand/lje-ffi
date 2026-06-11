@@ -866,6 +866,39 @@ static int to_binary_string(lua_State *L) {
   return 1;
 }
 
+// mem.function_to_ptr(func: function) -> number
+static int function_to_ptr(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+  void* ptr = lua->tocfunction(L, 1);
+  if (!ptr) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  lua->pushnumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(ptr)));
+  return 1;
+}
+
+// mem.upvalue(func: function, index: number) -> any
+// Basically unrestricted debug.getupvalue, unlike the one in GMod which *is* restricted.
+static int upvalue(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+
+  auto upvalue_index = static_cast<int>(lua->tonumber(L, 2));
+  const char *name = lua->getupvalue(L, 1, upvalue_index);
+  // getupvalue already pushes the value to the stack.
+  if (name) {
+    // Return value and name
+    lua->pushstring(L, name);
+    return 2;
+  }
+
+  // No upvalue at that index
+  return 0;
+}
+
 void register_all(lua_State *L) {
   auto lua = g_api->lua;
 
@@ -1066,6 +1099,12 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(to_binary_string), 0);
   lua->setfield(L, -2, "to_binary_string");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(function_to_ptr), 0);
+  lua->setfield(L, -2, "function_to_ptr");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(upvalue), 0);
+  lua->setfield(L, -2, "upvalue");
 
   lua->setfield(L, -2, "mem");
 }
