@@ -11,6 +11,9 @@
 
 namespace api::cstruct {
 
+// Pseudo-index of the nth upvalue of the running C closure (LuaJIT layout).
+#define LJE_UPVALUEINDEX(n) (LUA_GLOBALSINDEX - (n))
+
 // ---- Type system ----
 
 struct TypeInfo {
@@ -581,37 +584,42 @@ static void push_string_at(lua_State *L, uintptr_t addr, size_t max_len) {
   lua->pushstring(L, p);
 }
 
+// Push a single field's value (string/pointer-string/array/scalar) onto the stack
+static void push_field(lua_State *L, uintptr_t base, const FieldInfo &field) {
+  auto lua = g_api->lua;
+  uintptr_t addr = base + field.offset;
+
+  if (field.is_string && field.count > 0) {
+    // [[string]] char array - read as string up to first null or array length
+    push_string_at(L, addr, field.count);
+  } else if (field.is_string && !field.type_name.empty() && field.type_name.back() == '*') {
+    // [[string]] pointer - dereference and read null-terminated string
+    auto ptr = *reinterpret_cast<uintptr_t *>(addr);
+    if (ptr != 0) {
+      push_string_at(L, ptr, SIZE_MAX);
+    } else {
+      lua->pushnil(L);
+    }
+  } else if (field.count > 0) {
+    // Array - read each element into a Lua array
+    size_t elem_size = field.size / field.count;
+    lua->createtable(L, static_cast<int>(field.count), 0);
+    for (size_t i = 0; i < field.count; i++) {
+      push_value_at(L, addr + i * elem_size, field.type_name);
+      lua->rawseti(L, -2, static_cast<int>(i + 1));
+    }
+  } else {
+    push_value_at(L, addr, field.type_name);
+  }
+}
+
 // Read a whole struct/union into a Lua table
 static void push_struct_at(lua_State *L, uintptr_t base, const StructDef &def) {
   auto lua = g_api->lua;
   lua->createtable(L, 0, static_cast<int>(def.fields.size()));
 
   for (const auto &field : def.fields) {
-    uintptr_t addr = base + field.offset;
-
-    if (field.is_string && field.count > 0) {
-      // [[string]] char array - read as string up to first null or array length
-      push_string_at(L, addr, field.count);
-    } else if (field.is_string && !field.type_name.empty() && field.type_name.back() == '*') {
-      // [[string]] pointer - dereference and read null-terminated string
-      auto ptr = *reinterpret_cast<uintptr_t *>(addr);
-      if (ptr != 0) {
-        push_string_at(L, ptr, SIZE_MAX);
-      } else {
-        lua->pushnil(L);
-      }
-    } else if (field.count > 0) {
-      // Array - read each element into a Lua array
-      size_t elem_size = field.size / field.count;
-      lua->createtable(L, static_cast<int>(field.count), 0);
-      for (size_t i = 0; i < field.count; i++) {
-        push_value_at(L, addr + i * elem_size, field.type_name);
-        lua->rawseti(L, -2, static_cast<int>(i + 1));
-      }
-    } else {
-      push_value_at(L, addr, field.type_name);
-    }
-
+    push_field(L, base, field);
     lua->setfield(L, -2, field.name.c_str());
   }
 }
@@ -680,6 +688,147 @@ static void write_struct_at(lua_State *L, uintptr_t base, const StructDef &def, 
 
     lua->pop(L, 1);
   }
+}
+
+// Raise a Lua error from a C closure by invoking the global `error`.
+// This longjmps out and never returns to the caller.
+static void throw_error(lua_State *L, const std::string &msg) {
+  auto lua = g_api->lua;
+  lua->getfield(L, LUA_GLOBALSINDEX, "error");
+  lua->pushstring(L, msg.c_str());
+  lua->call(L, 1, 0);
+}
+
+// Returns nullptr if the value at vidx is assignable to a scalar field of the
+// given type, otherwise an English description of the expected Lua type.
+static const char *scalar_type_mismatch(lua_State *L, const std::string &type_name, int vidx) {
+  auto lua = g_api->lua;
+  int t = lua->type(L, vidx);
+
+  // LuaJIT has no native pointer type, so any pointer field accepts a number.
+  if (!type_name.empty() && type_name.back() == '*')
+    return t == LUA_TNUMBER ? nullptr : "a number (pointer)";
+
+  if (s_prim_kinds.find(type_name) != s_prim_kinds.end())
+    return t == LUA_TNUMBER ? nullptr : "a number";
+
+  if (s_structs.find(type_name) != s_structs.end())
+    return t == LUA_TTABLE ? nullptr : "a table";
+
+  return "<unknown type>";
+}
+
+// Type-check and write a single field from stack index vidx, raising a Lua
+// error on a type mismatch.
+static void write_field_checked(lua_State *L, uintptr_t base, const FieldInfo &field,
+                                int vidx, const char *struct_name) {
+  auto lua = g_api->lua;
+  uintptr_t addr = base + field.offset;
+  bool is_pointer = !field.type_name.empty() && field.type_name.back() == '*';
+
+  // [[string]] char array - accept a string, copy into the buffer.
+  if (field.is_string && field.count > 0 && !is_pointer) {
+    if (lua->type(L, vidx) != LUA_TSTRING)
+      throw_error(L, std::string("ffi.struct: field '") + field.name + "' of '" + struct_name +
+                         "' expects a string");
+    size_t len = 0;
+    const char *str = lua->tolstring(L, vidx, &len);
+    auto *dst = reinterpret_cast<char *>(addr);
+    size_t copy_len = len < field.count ? len : field.count;
+    std::memcpy(dst, str, copy_len);
+    if (copy_len < field.count)
+      std::memset(dst + copy_len, 0, field.count - copy_len);
+    return;
+  }
+
+  // Non-string array - accept a table, write each present element.
+  if (field.count > 0) {
+    if (lua->type(L, vidx) != LUA_TTABLE)
+      throw_error(L, std::string("ffi.struct: field '") + field.name + "' of '" + struct_name +
+                         "' expects a table (array)");
+    size_t elem_size = field.size / field.count;
+    for (size_t i = 0; i < field.count; i++) {
+      lua->rawgeti(L, vidx, static_cast<int>(i + 1));
+      if (!lua->isnil(L, -1)) {
+        const char *expected = scalar_type_mismatch(L, field.type_name, lua->gettop(L));
+        if (expected) {
+          lua->pop(L, 1);
+          throw_error(L, std::string("ffi.struct: element ") + std::to_string(i + 1) +
+                             " of field '" + field.name + "' expects " + expected);
+        }
+        write_value_at(L, addr + i * elem_size, field.type_name);
+      }
+      lua->pop(L, 1);
+    }
+    return;
+  }
+
+  // Scalar field (pointer / primitive / nested struct).
+  const char *expected = scalar_type_mismatch(L, field.type_name, vidx);
+  if (expected)
+    throw_error(L, std::string("ffi.struct: field '") + field.name + "' of '" + struct_name +
+                       "' expects " + expected);
+
+  // write_value_at reads from the top of the stack.
+  lua->pushvalue(L, vidx);
+  write_value_at(L, addr, field.type_name);
+  lua->pop(L, 1);
+}
+
+// __index(self, key) for cast wrappers.
+//   upvalue 1: lightuserdata base pointer
+//   upvalue 2: struct type name
+static int cast_index(lua_State *L) {
+  auto lua = g_api->lua;
+  auto base = reinterpret_cast<uintptr_t>(lua->tolightuserdata(L, LJE_UPVALUEINDEX(1)));
+  const char *type_name = lua->tolstring(L, LJE_UPVALUEINDEX(2), nullptr);
+  const char *key = lua->tolstring(L, 2, nullptr);
+
+  if (strcmp(key, "__address") == 0) {
+    lua->pushnumber(L, static_cast<double>(base));
+    return 1;
+  }
+
+  auto it = s_structs.find(type_name ? type_name : "");
+  if (it == s_structs.end() || !key) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  for (const auto &field : it->second.fields) {
+    if (field.name == key) {
+      push_field(L, base, field);
+      return 1;
+    }
+  }
+
+  lua->pushnil(L);
+  return 1;
+}
+
+// __newindex(self, key, value) for cast wrappers. Same upvalues as cast_index.
+static int cast_newindex(lua_State *L) {
+  auto lua = g_api->lua;
+  auto base = reinterpret_cast<uintptr_t>(lua->tolightuserdata(L, LJE_UPVALUEINDEX(1)));
+  const char *type_name = lua->tolstring(L, LJE_UPVALUEINDEX(2), nullptr);
+  const char *key = lua->tolstring(L, 2, nullptr);
+
+  auto it = s_structs.find(type_name ? type_name : "");
+  if (it == s_structs.end())
+    throw_error(L, std::string("ffi.struct: unknown struct '") + (type_name ? type_name : "?") + "'");
+
+  if (!key)
+    throw_error(L, std::string("ffi.struct: non-string field key on struct '") + type_name + "'");
+
+  for (const auto &field : it->second.fields) {
+    if (field.name == key) {
+      write_field_checked(L, base, field, 3, type_name);
+      return 0;
+    }
+  }
+
+  throw_error(L, std::string("ffi.struct: no field '") + key + "' in struct '" + type_name + "'");
+  return 0; // unreachable
 }
 
 // ---- Lua API ----
@@ -840,10 +989,54 @@ static int l_write(lua_State *L) {
   return 1;
 }
 
+// ffi.struct.cast(ptr, type_name) -> table | nil
+// Returns an empty table whose metatable reads/writes fields of the struct at
+// `ptr` lazily via __index/__newindex.
+static int l_cast(lua_State *L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+
+  init_builtin_types();
+
+  // Accept either a raw address (number) or an explicit lightuserdata pointer.
+  void *p;
+  if (lua->type(L, 1) == LUA_TLIGHTUSERDATA)
+    p = lua->tolightuserdata(L, 1);
+  else
+    p = reinterpret_cast<void *>(static_cast<uintptr_t>(lua->tonumber(L, 1)));
+
+  const char *type_name = lua->tolstring(L, 2, nullptr);
+  if (!type_name || s_structs.find(type_name) == s_structs.end()) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  // Empty wrapper table - all access goes through the metatable.
+  lua->createtable(L, 0, 0);
+
+  // Per-cast metatable; the metamethods capture the pointer and struct name as
+  // upvalues so each wrapper is bound to its own address/type.
+  lua->createtable(L, 0, 2);
+
+  lua->pushlightuserdata(L, p);
+  lua->pushstring(L, type_name);
+  lua->pushcclosure(L, reinterpret_cast<void *>(cast_index), 2);
+  lua->setfield(L, -2, "__index");
+
+  lua->pushlightuserdata(L, p);
+  lua->pushstring(L, type_name);
+  lua->pushcclosure(L, reinterpret_cast<void *>(cast_newindex), 2);
+  lua->setfield(L, -2, "__newindex");
+
+  lua->setmetatable(L, -2); // pops the metatable, sets it on the wrapper
+
+  return 1; // the wrapper table
+}
+
 void register_all(lua_State *L) {
   auto lua = g_api->lua;
 
-  lua->createtable(L, 0, 6);
+  lua->createtable(L, 0, 7);
 
   lua->pushcclosure(L, reinterpret_cast<void *>(l_define), 0);
   lua->setfield(L, -2, "define");
@@ -862,6 +1055,9 @@ void register_all(lua_State *L) {
 
   lua->pushcclosure(L, reinterpret_cast<void *>(l_write), 0);
   lua->setfield(L, -2, "write");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(l_cast), 0);
+  lua->setfield(L, -2, "cast");
 
   lua->setfield(L, -2, "struct");
 }

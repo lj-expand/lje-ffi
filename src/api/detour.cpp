@@ -139,6 +139,33 @@ static int method_disable(lua_State *L) {
   return 1;
 }
 
+static int method_remove(lua_State *L) {
+        auto lua = g_api->lua;
+        auto *detour = get_detour(L, 1);
+
+        if (!detour) {
+        lua->pushboolean(L, 0);
+        return 1;
+        }
+
+        // MH_CreateHook always ran, so always tear down regardless of enabled.
+        MH_DisableHook(reinterpret_cast<void *>(detour->target)); // harmless if already disabled
+        MH_RemoveHook(reinterpret_cast<void *>(detour->target));
+        minhook_shared::release_target(detour->target);
+
+        api::tcc::internal::destroy(detour->program);
+        detour->destroyed = true;
+        detour->program = nullptr;
+        delete detour;
+
+  // Actually write a null pointer to the userdata, though
+  DetourState** ud = static_cast<DetourState**>(lua->touserdata(L, 1));
+  (*ud) = nullptr;
+
+        lua->pushboolean(L, 1);
+        return 1;
+}
+
 static void push_detour_userdata(lua_State *L, DetourState *state) {
   auto lua = g_api->lua;
   auto **ud = static_cast<DetourState **>(lua->newuserdata(L, sizeof(DetourState *)));
@@ -242,6 +269,8 @@ void register_all(lua_State *L) {
   lua->setfield(L, -2, "enable");
   lua->pushcclosure(L, reinterpret_cast<void *>(method_disable), 0);
   lua->setfield(L, -2, "disable");
+  lua->pushcclosure(L, reinterpret_cast<void *>(method_remove), 0);
+  lua->setfield(L, -2, "remove");
   s_metatable_ref = lua->ref(L, LUA_REGISTRYINDEX);
 
   // The detour module table.

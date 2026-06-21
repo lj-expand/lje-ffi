@@ -10,6 +10,8 @@
 #include <string>
 
 #define WIN32_LEAN_AND_MEAN
+#include "ffi-helpers.hpp"
+
 #include <Windows.h>
 
 namespace api::tcc {
@@ -51,14 +53,43 @@ struct Program {
 };
 
 // Collects libtcc diagnostics so we can hand them back to Lua on failure.
+//
+// `recovery` is a landing pad captured in compile() right before we hand source
+// to libtcc. We need it because tcc 0.9.27's prebuilt win64 libtcc.dll reports
+// fatal errors by longjmp'ing out of the parser, and on x64 the CRT longjmp is a
+// full SEH unwind (RtlUnwindEx) back to the setjmp frame inside libtcc. That DLL
+// was built with a toolchain that emits incomplete x64 unwind data, so the
+// unwind walks off the stack without finding the target frame and dies with
+// STATUS_BAD_STACK before control ever returns to us. tcc calls our error_func
+// *before* it longjmps, so we hijack control there and jump back out ourselves
+// via RtlRestoreContext (a plain register/RSP restore, no SEH unwind), which
+// safely abandons libtcc's frames - they're all C, with nothing to unwind.
 struct ErrorSink {
-    std::string text;
+    std::string   text;
+    CONTEXT       recovery;       // captured landing pad in compile()
+    volatile bool escaped = false; // set true on the way back through on_tcc_error
 };
+
+// RtlRestoreContext isn't in every SDK import lib by name, so resolve it from
+// ntdll (always loaded) rather than relying on the linker.
+using RtlRestoreContext_t = VOID(NTAPI*)(PCONTEXT, struct _EXCEPTION_RECORD*);
 
 static void on_tcc_error(void* opaque, const char* msg) {
     auto* sink = static_cast<ErrorSink*>(opaque);
     sink->text += msg;
     sink->text += '\n';
+
+    // Warnings come through here too but tcc keeps compiling for them (no
+    // longjmp), so only escape on a fatal error. error1() prefixes fatal
+    // diagnostics with "error: " and warnings with "warning: ".
+    if (!std::strstr(msg, "error:")) return;
+
+    auto restore = reinterpret_cast<RtlRestoreContext_t>(
+        GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlRestoreContext"));
+    if (!restore) return; // can't escape cleanly; let tcc's longjmp run (it'll crash)
+
+    sink->escaped = true;
+    restore(&sink->recovery, nullptr); // jumps back into compile(), never returns
 }
 
 // Helper includes/defines for writing lua stackcode.
@@ -406,6 +437,19 @@ TCCState* compile(lua_State* L, const char* source, bool use_prelude, std::strin
     }
     full += source;
 
+    // Landing pad for on_tcc_error. RtlCaptureContext returns here twice, like
+    // setjmp: once now (escaped == false, fall through and compile) and again if
+    // a fatal diagnostic jumps us back via RtlRestoreContext (escaped == true).
+    // One capture covers both tcc_compile_string and tcc_relocate below, since
+    // we stay in this frame throughout. `sink.escaped` is volatile so the branch
+    // re-reads it from memory after the jump rather than caching the first pass.
+    RtlCaptureContext(&sink.recovery);
+    if (sink.escaped) {
+        error = sink.text.empty() ? "tcc: compilation failed" : sink.text;
+        T.tcc_delete(s);
+        return nullptr;
+    }
+
     if (T.tcc_compile_string(s, full.c_str()) < 0) {
         error = sink.text.empty() ? "tcc: compilation failed" : sink.text;
         T.tcc_delete(s);
@@ -501,6 +545,39 @@ static int method_get(lua_State* L) {
     return 1;
 }
 
+static int method_bind(lua_State* L) {
+  auto lua = g_api->lua;
+  FFI_AUTH_CALL(lua, L);
+
+  auto* prog = get_program(L, 1);
+  if (!prog) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  const char* name = lua->tolstring(L, 2, nullptr);
+  const char* sig = lua->tolstring(L, 3, nullptr);
+  if (!name || !name[0] || !sig || !sig[0]) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  void* sym = internal::symbol(prog->state, name);
+  if (!sym) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  auto* cached = ffi_helpers::get_or_prep_cif(sig);
+  if (!cached) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  ffi_helpers::push_bound_closure(L, sig, reinterpret_cast<uintptr_t>(sym), cached);
+  return 1;
+}
+
 static void push_program_userdata(lua_State* L, Program* prog) {
     auto lua = g_api->lua;
     auto** ud = static_cast<Program**>(lua->newuserdata(L, sizeof(Program*)));
@@ -558,6 +635,8 @@ void register_all(lua_State* L) {
     lua->createtable(L, 0, 1);
     lua->pushcclosure(L, reinterpret_cast<void*>(method_get), 0);
     lua->setfield(L, -2, "get");
+    lua->pushcclosure(L, reinterpret_cast<void*>(method_bind), 0);
+    lua->setfield(L, -2, "bind");
     lua->setfield(L, -2, "__index");
 
     s_metatable_ref = lua->ref(L, LUA_REGISTRYINDEX);
