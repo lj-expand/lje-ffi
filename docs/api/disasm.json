@@ -1,0 +1,171 @@
+{
+  "namespace": "disasm",
+  "description": "x86-64 disassembly utilities backed by Capstone. All addresses are Lua numbers (doubles representing 64-bit pointers). Capstone is initialised lazily on first use; if initialisation fails, functions return an empty table or `nil` rather than raising an error.",
+  "functions": [
+    {
+      "name": "at",
+      "description": "Disassembles up to `count` instructions starting at `address` and returns them as an array. Each element is an instruction table with the following fields:\n\n| Field | Type | Description |\n|---|---|---|\n| `address` | `number` | Virtual address of this instruction. |\n| `mnemonic` | `string` | Instruction mnemonic (e.g. `\"mov\"`, `\"call\"`). |\n| `op_str` | `string` | Operand string as printed by Capstone (e.g. `\"rax, qword ptr [rip + 0x1234]\"`). |\n| `size` | `number` | Byte length of the instruction. |\n| `bytes` | `table` | Array of `number` — the raw bytes of the instruction (1-indexed). |\n| `operands` | `table` | Array of operand tables (see below). |\n\nEach operand table always contains `type` (`\"reg\"`, `\"imm\"`, `\"mem\"`, or `\"unknown\"`) and `size` (number of bytes the operand accesses). Additional fields depend on `type`:\n- `\"reg\"`: `reg` (string) — register name.\n- `\"imm\"`: `imm` (number) — immediate value.\n- `\"mem\"`: `base` (string, optional), `index` (string, optional), `scale` (number), `disp` (number).",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Starting address to disassemble from."
+        },
+        {
+          "name": "count",
+          "type": "number",
+          "optional": true,
+          "description": "Maximum number of instructions to decode. Defaults to `1`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "Array of instruction tables. Empty if Capstone failed to initialise or could not decode any instructions."
+        }
+      ]
+    },
+    {
+      "name": "at_bytes",
+      "description": "Disassembles as many complete instructions as fit within `byte_count` bytes starting at `address`. Unlike `at`, the limit is measured in bytes rather than instruction count, which pairs naturally with `disasm.size`. Returns an array of instruction tables with the same shape as `at`.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Starting address to disassemble from."
+        },
+        {
+          "name": "byte_count",
+          "type": "number",
+          "description": "Maximum number of bytes to consume."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "Array of instruction tables. Empty if Capstone failed to initialise or could not decode any instructions."
+        }
+      ]
+    },
+    {
+      "name": "pull_global",
+      "description": "Decodes the single instruction at `address` and, if it is a RIP-relative `mov` of the form `mov <reg>, qword ptr [rip + offset]`, resolves and returns the absolute target address. This is the standard compiler pattern for loading the address of a global variable. Returns `nil` if the instruction is not that pattern, if disassembly failed, or if Capstone could not be initialised.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Address of the instruction to inspect."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "optional": true,
+          "description": "Resolved global address, or `nil` if the instruction does not match the expected pattern."
+        }
+      ]
+    },
+    {
+      "name": "pull_all_globals",
+      "description": [
+        "Scans up to `max_size` instructions starting at `address` and collects the resolved target address of every RIP-relative `mov <reg>, qword ptr [rip + offset]` instruction found (the pattern used by the compiler to access global variables).",
+        "Scanning stops early if an `INT3` padding byte is encountered (indicating the end of the function body). Unlike `size`, this function does **not** stop at `ret` or `jmp`, because globals can be loaded after such instructions (e.g. into a return register in the function epilogue).",
+        "Returns an array of resolved addresses in the order they were found."
+      ],
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Starting address to scan from."
+        },
+        {
+          "name": "max_size",
+          "type": "number",
+          "optional": true,
+          "description": "Maximum number of instructions to examine. Defaults to `128`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "Array of `number` — resolved global addresses in encounter order. Empty if Capstone failed to initialise, no globals were found, or disassembly produced no instructions."
+        }
+      ]
+    },
+    {
+      "name": "pull_calls",
+      "description": [
+        "Scans up to `max_size` instructions starting at `address` and collects the resolved target address of every `call` instruction found.",
+        "Both direct (`call imm`) and RIP-relative indirect (`call qword ptr [rip + offset]`) forms are resolved to absolute addresses. Other indirect forms (e.g. `call rax`) are skipped because the target cannot be determined statically.",
+        "Scanning stops early at the first `INT3` padding byte. This is useful for finding thunk addresses of virtual-function calls, where hooking the thunk's inner target is more practical than hooking the thunk itself.",
+        "Returns an array of resolved call-target addresses in encounter order."
+      ],
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Starting address to scan from."
+        },
+        {
+          "name": "max_size",
+          "type": "number",
+          "optional": true,
+          "description": "Maximum number of instructions to examine. Defaults to `128`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "Array of `number` — resolved call-target addresses in encounter order. Empty if Capstone failed to initialise, no resolvable calls were found, or disassembly produced no instructions."
+        }
+      ]
+    },
+    {
+      "name": "size",
+      "description": [
+        "Returns the byte size of the function that contains `address`.",
+        "**Primary method:** `RtlLookupFunctionEntry` reads the `.pdata` `RUNTIME_FUNCTION` table, which covers all non-leaf functions on x86-64 Windows.",
+        "**Fallback:** For leaf functions (which have no `.pdata` entry), Capstone linearly sweeps up to `0x1000` bytes and stops at the first run of `INT3` padding bytes.",
+        "A lone `INT3` surrounded by non-`INT3` instructions is treated as a live `__debugbreak()` or assertion trap, not as padding — only a `INT3` immediately after a `ret`/`jmp`, or two or more consecutive `INT3`s, triggers the boundary cut.",
+        "Returns `nil` if neither method produces a result."
+      ],
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Any address within the function to measure (typically the function entry point)."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "optional": true,
+          "description": "Size of the function in bytes, or `nil` if it could not be determined."
+        }
+      ]
+    },
+    {
+      "name": "autosig",
+      "description": "Copies `size` bytes from `address` and auto-masks them into a byte-pattern signature string with wildcard (`?`) bytes in place of relocatable values (e.g. relative offsets in call/jmp instructions). The resulting string is suitable for use with pattern scanners. Returns `nil` if the masking process produces an empty signature.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Starting address of the region to signature."
+        },
+        {
+          "name": "size",
+          "type": "number",
+          "description": "Number of bytes to read and mask."
+        }
+      ],
+      "returns": [
+        {
+          "type": "string",
+          "optional": true,
+          "description": "The auto-generated signature string, or `nil` if one could not be produced."
+        }
+      ]
+    }
+  ]
+}

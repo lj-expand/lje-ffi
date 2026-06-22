@@ -1,0 +1,14 @@
+---
+id: struct
+title: ffi.struct
+---
+
+import NamespaceDocs from '@site/src/components/NamespaceDocs';
+import data from '@site/api/struct.json';
+
+export const toc = [
+  { id: 'functions', value: 'Functions', level: 2 },
+  ...data.functions.map(f => ({ id: f.name, value: f.name, level: 3 })),
+];
+
+<NamespaceDocs data={data} />

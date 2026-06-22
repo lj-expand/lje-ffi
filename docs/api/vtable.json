@@ -1,0 +1,225 @@
+{
+  "namespace": "vtable",
+  "description": "Functions for reading, writing, and searching C++ virtual method tables (vtables). All addresses are plain Lua numbers (doubles). Memory-access failures from bad pointers are caught silently and return `nil` or `false` rather than raising an error.",
+  "functions": [
+    {
+      "name": "base",
+      "description": "Reads the vtable pointer from an object — that is, the value of the first pointer-sized word at `obj`. This is the standard layout for any C++ class with virtual methods.",
+      "params": [
+        {
+          "name": "obj",
+          "type": "number",
+          "description": "Address of the C++ object whose vtable pointer should be read."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "optional": true,
+          "description": "The vtable pointer, or `nil` if the read faulted."
+        }
+      ]
+    },
+    {
+      "name": "get",
+      "description": "Reads the function pointer at slot `index` of the vtable belonging to `obj`. Internally dereferences the vtable pointer first, then indexes into it.",
+      "params": [
+        {
+          "name": "obj",
+          "type": "number",
+          "description": "Address of the C++ object."
+        },
+        {
+          "name": "index",
+          "type": "number",
+          "description": "Zero-based slot index into the vtable."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "optional": true,
+          "description": "The function pointer at that slot, or `nil` if the read faulted."
+        }
+      ]
+    },
+    {
+      "name": "get_from",
+      "description": "Reads the function pointer at slot `index` directly from a vtable pointer. Unlike `get`, this takes the vtable address itself rather than an object address — useful when the vtable pointer is already known.",
+      "params": [
+        {
+          "name": "vtbl",
+          "type": "number",
+          "description": "Address of the vtable (not the object)."
+        },
+        {
+          "name": "index",
+          "type": "number",
+          "description": "Zero-based slot index into the vtable."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "optional": true,
+          "description": "The function pointer at that slot, or `nil` if the read faulted."
+        }
+      ]
+    },
+    {
+      "name": "set",
+      "description": [
+        "Overwrites the function pointer at slot `index` of the vtable belonging to `obj`. The vtable must be writable; if the memory is read-only the write will fault and `false` is returned.",
+        "",
+        "**Warning:** Patching a vtable in place affects every object that shares that vtable. Use with care, or copy the vtable first."
+      ],
+      "params": [
+        {
+          "name": "obj",
+          "type": "number",
+          "description": "Address of the C++ object."
+        },
+        {
+          "name": "index",
+          "type": "number",
+          "description": "Zero-based slot index into the vtable."
+        },
+        {
+          "name": "func",
+          "type": "number",
+          "description": "New function pointer to write into the slot."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "`true` if the write succeeded, `false` if it faulted."
+        }
+      ]
+    },
+    {
+      "name": "set_from",
+      "description": [
+        "Overwrites the function pointer at slot `index` directly in the vtable at address `vtbl`. Unlike `set`, this takes the vtable address itself rather than an object address.",
+        "",
+        "**Warning:** Patching a vtable in place affects every object that shares that vtable. Use with care, or copy the vtable first."
+      ],
+      "params": [
+        {
+          "name": "vtbl",
+          "type": "number",
+          "description": "Address of the vtable (not the object)."
+        },
+        {
+          "name": "index",
+          "type": "number",
+          "description": "Zero-based slot index into the vtable."
+        },
+        {
+          "name": "func",
+          "type": "number",
+          "description": "New function pointer to write into the slot."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "`true` if the write succeeded, `false` if it faulted."
+        }
+      ]
+    },
+    {
+      "name": "size",
+      "description": "Estimates the number of slots in a vtable by walking entries until one fails a validity check. An entry is considered valid when it is non-null, in the range `0x10000`–`0x7FFFFFFFFFFF`, and points to executable memory. The walk stops at the first invalid or inaccessible entry.",
+      "note": "This is a heuristic; the result may be an under-count if the vtable contains a null or non-code pointer mid-table, or an over-count if adjacent read-only data happens to resemble valid code pointers.",
+      "params": [
+        {
+          "name": "vtbl",
+          "type": "number",
+          "description": "Address of the vtable (not the object)."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "description": "Estimated number of slots."
+        }
+      ]
+    },
+    {
+      "name": "find",
+      "description": [
+        "Locates the vtable for a named C++ class inside a loaded module using RTTI metadata. The search follows the standard MSVC RTTI chain:",
+        "",
+        "1. Scans `.data` for the `TypeDescriptor` matching `.?AV<name>@@`.",
+        "2. Scans `.rdata` for the `CompleteObjectLocator` that references it.",
+        "3. Scans `.rdata` for the vftable meta-pointer that references the locator.",
+        "4. Returns the address of the slot immediately after the meta-pointer, which is the first virtual method slot.",
+        "",
+        "Returns `nil` if any step fails (class not found, stripped RTTI, or the module lacks `.data`/`.rdata` sections)."
+      ],
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "Module handle (e.g. from `lje.module.get`)."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "Undecorated class name as it appears in the RTTI type descriptor, e.g. `\"MyClass\"`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "optional": true,
+          "description": "Address of the vtable's first slot, or `nil` if the class could not be located."
+        }
+      ]
+    },
+    {
+      "name": "find_instances",
+      "description": [
+        "Finds live instances of a class by scanning memory for the vtable pointer. The vtable address is resolved first via RTTI (same as `find`). The scan proceeds in two phases:",
+        "",
+        "1. **Module `.data` section** — fast, covers most static/global instances.",
+        "2. **Process-wide memory scan** — falls back to this only when no results are found in phase 1. Scans all read-write, non-image memory regions that are at least `min_size` bytes large.",
+        "",
+        "Each result is the address where the vtable pointer was found — i.e. the likely start of an object of that class.",
+        "",
+        "Returns an empty table (never `nil`) when the vtable cannot be found or no matches exist."
+      ],
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "Module handle (e.g. from `lje.module.get`)."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "Undecorated class name, e.g. `\"MyClass\"`."
+        },
+        {
+          "name": "multiple",
+          "type": "boolean",
+          "optional": true,
+          "description": "If `true`, collect all matches in phase 1 instead of stopping at the first. Defaults to `false`."
+        },
+        {
+          "name": "min_size",
+          "type": "number",
+          "optional": true,
+          "description": "Minimum region size (bytes) for the process-wide phase-2 scan. Defaults to `1048576` (1 MB)."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "Array of addresses (numbers) where the vtable pointer was found, ordered by discovery. May be empty."
+        }
+      ]
+    }
+  ]
+}

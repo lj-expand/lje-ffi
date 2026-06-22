@@ -1,0 +1,23 @@
+---
+id: tcc
+title: ffi.tcc
+---
+
+import NamespaceDocs from '@site/src/components/NamespaceDocs';
+import data from '@site/api/tcc.json';
+
+export const toc = [
+  { id: 'functions', value: 'Functions', level: 2 },
+  ...data.functions.map(f => ({ id: f.name, value: f.name, level: 3 })),
+  ...(data.classes?.length ? [{ id: 'classes', value: 'Classes', level: 2 }] : []),
+  ...(data.classes ?? []).flatMap(c => [
+    { id: c.name.toLowerCase(), value: c.name, level: 3 },
+    ...c.methods.map(m => ({
+      id: `${c.name}-${m.name}`.toLowerCase(),
+      value: `${c.receiver ?? c.name.toLowerCase()}:${m.name}`,
+      level: 4,
+    })),
+  ]),
+];
+
+<NamespaceDocs data={data} />

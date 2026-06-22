@@ -1,0 +1,103 @@
+{
+  "namespace": "callback",
+  "description": "Creates and manages native C function pointers (libffi closures) backed by Lua functions. This is the inverse of `lje.call` — instead of calling a C function from Lua, you expose a Lua function as a callable C address that native code can invoke.",
+  "functions": [
+    {
+      "name": "create",
+      "description": [
+        "Creates a new libffi closure that wraps a Lua function as a callable C function pointer.",
+        "",
+        "The signature string encodes the calling convention in a compact character format. The **first character** is the return type; every subsequent character is an argument type, in order. Type characters:",
+        "",
+        "| Char | C type | Lua type |",
+        "|------|--------|----------|",
+        "| `v`  | `void` | *(no return)* |",
+        "| `i`  | `int32_t` | `number` |",
+        "| `u`  | `uint32_t` | `number` |",
+        "| `l`  | `int64_t` | `number` |",
+        "| `f`  | `float` | `number` |",
+        "| `d`  | `double` | `number` |",
+        "| `b`  | `uint8_t` | `boolean` |",
+        "| `p`  | `void*` | `number` (address) |",
+        "| `s`  | `const char*` | `string` (or `number` 0 if null) |",
+        "",
+        "For example, `\"ipp\"` means: returns `int32_t`, takes two pointer arguments.",
+        "",
+        "The returned **userdata** is a GC-managed handle. Keep it alive (e.g., in a global) for as long as the native code may call the address. When the handle is garbage-collected, the closure is freed and the address becomes invalid. You can also free it early with `lje.callback.remove`.",
+        "",
+        "The `on_remove` function, if provided, is called with no arguments immediately before the closure is freed (whether by GC or by an explicit `remove` call). Use it to clean up any native-side references to the address.",
+        "",
+        "**Thread safety:** the closure can only invoke the Lua handler when called from the same OS thread that created it. Calls arriving from other threads silently return a zeroed result without executing Lua code.",
+        "",
+        "Returns nothing if the signature is empty, contains an unknown type character, or if libffi fails to prepare the closure."
+      ],
+      "params": [
+        {
+          "name": "sig",
+          "type": "string",
+          "description": "Type signature string. First character is the return type; remaining characters are argument types. Maximum 63 characters total. See the type character table above."
+        },
+        {
+          "name": "handler",
+          "type": "function",
+          "description": "The Lua function to invoke when the C address is called. Receives each C argument marshalled to a Lua value. If the return type is not `v`, it must return a compatible value."
+        },
+        {
+          "name": "on_remove",
+          "type": "function",
+          "optional": true,
+          "description": "Optional callback invoked (with no arguments) just before the closure is freed, either by GC or by `lje.callback.remove`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "userdata",
+          "description": "GC-managed closure handle. Must be kept alive as long as the native address is in use. Freed via GC or `lje.callback.remove`."
+        },
+        {
+          "type": "number",
+          "description": "The native function pointer address as a number. Pass this to any native API that expects a C callback."
+        }
+      ],
+      "note": "Returns nothing (no values) on failure — check that two values were returned before using the address."
+    },
+    {
+      "name": "remove",
+      "description": [
+        "Explicitly frees a callback closure before it would be garbage-collected.",
+        "",
+        "If the closure has an `on_remove` handler, it is called first. After this call the native address is invalid and the userdata handle is permanently destroyed. Calling `remove` on an already-destroyed handle is safe and returns `false`."
+      ],
+      "params": [
+        {
+          "name": "cb",
+          "type": "userdata",
+          "description": "The callback handle returned by `lje.callback.create`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "`true` if the closure was alive and has now been freed; `false` if it was already destroyed."
+        }
+      ]
+    },
+    {
+      "name": "address",
+      "description": "Returns the native function pointer address of a callback handle. Useful when you need the address again after `create` without storing the second return value separately. Returns `0` if the handle has been destroyed.",
+      "params": [
+        {
+          "name": "cb",
+          "type": "userdata",
+          "description": "The callback handle returned by `lje.callback.create`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "description": "The native function pointer address, or `0` if the handle has been destroyed."
+        }
+      ]
+    }
+  ]
+}

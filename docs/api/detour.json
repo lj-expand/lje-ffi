@@ -1,0 +1,111 @@
+{
+  "namespace": "detour",
+  "description": "C-level inline hook (detour) creation using MinHook and TCC-compiled C code. A detour redirects execution at a target address to a user-supplied C function, writing the original-function trampoline back into the C program so callers can invoke the original. The returned detour object manages the hook lifecycle.",
+  "functions": [
+    {
+      "name": "create",
+      "description": [
+        "Compiles `code` with TCC and installs an inline hook at `target` using MinHook.",
+        "",
+        "The C source must define exactly two symbols:",
+        "- `detour` — the replacement function that MinHook will redirect execution to.",
+        "- `original` — a pointer variable (e.g. `void *original;` or a typed function pointer) into which the MinHook trampoline address is written automatically after hook creation. Call through `original` to invoke the real function.",
+        "",
+        "The hook is enabled immediately after creation. On failure, `nil` is returned along with an error string describing what went wrong."
+      ],
+      "params": [
+        {
+          "name": "target",
+          "type": "number",
+          "description": "Address of the function to hook, as a Lua number."
+        },
+        {
+          "name": "code",
+          "type": "string",
+          "description": "C source code to compile with TCC. Must define a `detour` function symbol and an `original` pointer symbol."
+        }
+      ],
+      "returns": [
+        {
+          "type": "userdata",
+          "optional": true,
+          "description": "A detour object on success. `nil` on failure."
+        },
+        {
+          "type": "string",
+          "optional": true,
+          "description": "Error message when the first return value is `nil`."
+        }
+      ],
+      "errors": [
+        "MinHook failed to initialize",
+        "code is nil or empty",
+        "target address is already hooked by another detour",
+        "TCC compilation failed (error string returned as second value)",
+        "compiled program is missing the required 'detour' or 'original' symbol",
+        "MinHook failed to create the hook",
+        "MinHook failed to enable the hook after creation"
+      ]
+    }
+  ],
+  "classes": [
+    {
+      "name": "Detour",
+      "receiver": "detour",
+      "description": "The object returned by `lje.detour.create`. It owns the MinHook hook and the compiled TCC program for the lifetime of the detour, and exposes methods to inspect the compiled program and to control the hook. The detour is garbage-collected: when the object is collected it is automatically removed, but you can also tear it down deterministically with `remove`.",
+      "methods": [
+        {
+          "name": "get",
+          "description": "Looks up a symbol by name from the TCC program compiled during `create`. This can be used to read or write data symbols inside the detour program (for example, a call counter or configuration variable). Returns the symbol's address as a number, or `nil` if the symbol does not exist or the detour has been removed.",
+          "params": [
+            {
+              "name": "name",
+              "type": "string",
+              "description": "Name of the symbol to look up in the compiled TCC program."
+            }
+          ],
+          "returns": [
+            {
+              "type": "number",
+              "optional": true,
+              "description": "Address of the symbol as a Lua number, or `nil` if not found or the detour is destroyed."
+            }
+          ]
+        },
+        {
+          "name": "enable",
+          "description": "Re-enables a previously disabled detour hook via MinHook. Returns `false` without doing anything if the hook is already marked enabled or if the detour has been removed.",
+          "params": [],
+          "returns": [
+            {
+              "type": "boolean",
+              "description": "`true` if MinHook successfully enabled the hook, `false` if already enabled, if the detour is destroyed, or if MinHook reported an error."
+            }
+          ]
+        },
+        {
+          "name": "disable",
+          "description": "Disables a detour hook via MinHook, restoring execution to the original function at the target address. The detour object remains valid and the hook can be re-enabled with `enable`. Returns `false` without doing anything if the hook is already marked disabled or if the detour has been removed.",
+          "params": [],
+          "returns": [
+            {
+              "type": "boolean",
+              "description": "`true` if MinHook successfully disabled the hook, `false` if already disabled, if the detour is destroyed, or if MinHook reported an error."
+            }
+          ]
+        },
+        {
+          "name": "remove",
+          "description": "Permanently removes the detour: disables the hook, unregisters it from MinHook, releases the target address claim, and frees the TCC program. After calling `remove`, all further method calls on the same object return `false` or `nil`. The garbage collector also performs this cleanup automatically when the object is collected, so calling `remove` is optional but allows deterministic teardown.",
+          "params": [],
+          "returns": [
+            {
+              "type": "boolean",
+              "description": "`true` if the detour was successfully removed, `false` if it had already been removed."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

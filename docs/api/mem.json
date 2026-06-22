@@ -1,0 +1,750 @@
+{
+  "namespace": "mem",
+  "description": "Low-level memory operations: allocation, typed reads/writes, pointer chains, memory protection, pattern scanning, and heap inspection.",
+  "functions": [
+    {
+      "name": "alloc",
+      "description": "Allocates a block of memory of the given size using `malloc` and returns its address.",
+      "params": [
+        {
+          "name": "size",
+          "type": "number",
+          "description": "Number of bytes to allocate."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "description": "Address of the newly allocated block."
+        }
+      ]
+    },
+    {
+      "name": "free",
+      "description": "Frees a block of memory previously allocated by `mem.alloc`. Passing an invalid address or double-freeing is undefined behavior.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Address of the block to free."
+        }
+      ],
+      "returns": []
+    },
+    {
+      "name": "copy",
+      "description": "Copies `size` bytes from `src` to `dest` using `memcpy`. The regions must not overlap.",
+      "params": [
+        {
+          "name": "dest",
+          "type": "number",
+          "description": "Destination address."
+        },
+        {
+          "name": "src",
+          "type": "number",
+          "description": "Source address."
+        },
+        {
+          "name": "size",
+          "type": "number",
+          "description": "Number of bytes to copy."
+        }
+      ],
+      "returns": []
+    },
+    {
+      "name": "fill",
+      "description": "Fills `size` bytes starting at `address` with the given byte `value` using `memset`.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Starting address."
+        },
+        {
+          "name": "value",
+          "type": "number",
+          "description": "Byte value to fill with (only the low 8 bits are used)."
+        },
+        {
+          "name": "size",
+          "type": "number",
+          "description": "Number of bytes to fill."
+        }
+      ],
+      "returns": []
+    },
+    {
+      "name": "copy_from_string",
+      "description": "Copies the raw bytes of a Lua string (including embedded null bytes) to the given address. The number of bytes copied equals the string's length.",
+      "params": [
+        {
+          "name": "dest",
+          "type": "number",
+          "description": "Destination address."
+        },
+        {
+          "name": "str",
+          "type": "string",
+          "description": "Source data as a (possibly binary) Lua string."
+        }
+      ],
+      "returns": []
+    },
+    {
+      "name": "read_u8",
+      "description": "Reads an unsigned 8-bit integer from the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "Value in the range `[0, 255]`." }
+      ]
+    },
+    {
+      "name": "read_i8",
+      "description": "Reads a signed 8-bit integer from the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "Value in the range `[-128, 127]`." }
+      ]
+    },
+    {
+      "name": "read_u16",
+      "description": "Reads an unsigned 16-bit integer from the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "Value in the range `[0, 65535]`." }
+      ]
+    },
+    {
+      "name": "read_i16",
+      "description": "Reads a signed 16-bit integer from the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "Value in the range `[-32768, 32767]`." }
+      ]
+    },
+    {
+      "name": "read_u32",
+      "description": "Reads an unsigned 32-bit integer from the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "Value in the range `[0, 4294967295]`." }
+      ]
+    },
+    {
+      "name": "read_i32",
+      "description": "Reads a signed 32-bit integer from the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "Value in the range `[-2147483648, 2147483647]`." }
+      ]
+    },
+    {
+      "name": "read_u64",
+      "description": "Reads an unsigned 64-bit integer from the given address.",
+      "note": "Large 64-bit values may lose precision when stored as a Lua `number` (double). Values up to 2^53 are exact.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "The 64-bit unsigned value as a double." }
+      ]
+    },
+    {
+      "name": "read_i64",
+      "description": "Reads a signed 64-bit integer from the given address.",
+      "note": "Large 64-bit values may lose precision when stored as a Lua `number` (double). Values in `[-2^53, 2^53]` are exact.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "The 64-bit signed value as a double." }
+      ]
+    },
+    {
+      "name": "read_f32",
+      "description": "Reads a 32-bit IEEE 754 float from the given address and returns it widened to a double.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "The float value." }
+      ]
+    },
+    {
+      "name": "read_f64",
+      "description": "Reads a 64-bit IEEE 754 double from the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "The double value." }
+      ]
+    },
+    {
+      "name": "read_ptr",
+      "description": "Reads a 64-bit pointer-sized value from the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "description": "The pointer value as a double." }
+      ]
+    },
+    {
+      "name": "read_string",
+      "description": "Reads a null-terminated string from memory starting at `address`. If `max_len` is provided, at most that many characters are read (via `strnlen`).",
+      "params": [
+        { "name": "address", "type": "number", "description": "Address of the first character." },
+        { "name": "max_len", "type": "number", "optional": true, "description": "Maximum number of characters to scan for the null terminator." }
+      ],
+      "returns": [
+        { "type": "string", "description": "The string read from memory." }
+      ]
+    },
+    {
+      "name": "try_read_u8",
+      "description": "Protected version of `read_u8`. Returns the value on success, or nothing on access violation or other hardware exception. Does not throw a Lua error.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_i8",
+      "description": "Protected version of `read_i8`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_u16",
+      "description": "Protected version of `read_u16`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_i16",
+      "description": "Protected version of `read_i16`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_u32",
+      "description": "Protected version of `read_u32`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_i32",
+      "description": "Protected version of `read_i32`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_u64",
+      "description": "Protected version of `read_u64`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_i64",
+      "description": "Protected version of `read_i64`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_f32",
+      "description": "Protected version of `read_f32`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_f64",
+      "description": "Protected version of `read_f64`. Returns the value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_ptr",
+      "description": "Protected version of `read_ptr`. Returns the pointer value on success, or nothing on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to read from." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The pointer value, or nothing if the read faulted." }
+      ]
+    },
+    {
+      "name": "try_read_string",
+      "description": "Protected version of `read_string`. Uses SEH to catch access violations during the `strnlen` call. If `max_len` is omitted the entire string is read with no length limit. Returns nothing on fault.",
+      "note": "Unlike the numeric `try_read_*` variants, this uses SEH internally because SSE2-vectorized `strnlen` cannot be safely unwound by the VEH longjmp path.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Address of the first character." },
+        { "name": "max_len", "type": "number", "optional": true, "description": "Maximum number of characters to scan for the null terminator." }
+      ],
+      "returns": [
+        { "type": "string", "optional": true, "description": "The string read from memory, or nothing on fault." }
+      ]
+    },
+    {
+      "name": "write_u8",
+      "description": "Writes an unsigned 8-bit integer to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write (truncated to 8 bits)." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_i8",
+      "description": "Writes a signed 8-bit integer to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write (truncated to 8 bits)." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_u16",
+      "description": "Writes an unsigned 16-bit integer to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write (truncated to 16 bits)." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_i16",
+      "description": "Writes a signed 16-bit integer to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write (truncated to 16 bits)." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_u32",
+      "description": "Writes an unsigned 32-bit integer to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write (truncated to 32 bits)." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_i32",
+      "description": "Writes a signed 32-bit integer to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write (truncated to 32 bits)." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_u64",
+      "description": "Writes an unsigned 64-bit integer to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write (converted from double; precision limited to 53 bits)." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_i64",
+      "description": "Writes a signed 64-bit integer to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write (converted from double; precision limited to 53 bits)." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_f32",
+      "description": "Writes a 32-bit float to the given address (narrows the double value).",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_f64",
+      "description": "Writes a 64-bit double to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_ptr",
+      "description": "Writes a 64-bit pointer-sized value to the given address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Pointer value to write." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "write_string",
+      "description": "Copies a Lua string (plus its null terminator) into memory at the given address. The number of bytes written is `#str + 1`.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Destination address." },
+        { "name": "str", "type": "string", "description": "String to write." }
+      ],
+      "returns": []
+    },
+    {
+      "name": "try_write_u8",
+      "description": "Protected version of `write_u8`. Returns `true` on success, `false` if an access violation or hardware exception occurred.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_i8",
+      "description": "Protected version of `write_i8`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_u16",
+      "description": "Protected version of `write_u16`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_i16",
+      "description": "Protected version of `write_i16`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_u32",
+      "description": "Protected version of `write_u32`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_i32",
+      "description": "Protected version of `write_i32`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_u64",
+      "description": "Protected version of `write_u64`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_i64",
+      "description": "Protected version of `write_i64`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_f32",
+      "description": "Protected version of `write_f32`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_f64",
+      "description": "Protected version of `write_f64`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_ptr",
+      "description": "Protected version of `write_ptr`. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Memory address to write to." },
+        { "name": "value", "type": "number", "description": "Value to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "try_write_string",
+      "description": "Protected version of `write_string`. Copies the string and its null terminator into memory. Returns `true` on success, `false` on fault.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Destination address." },
+        { "name": "str", "type": "string", "description": "String to write." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if the write succeeded, `false` on fault." }
+      ]
+    },
+    {
+      "name": "sizeof",
+      "description": "Returns the byte size of a named primitive type. Recognized type names are `u8`, `i8`, `u16`, `i16`, `u32`, `i32`, `f32`, `u64`, `i64`, `f64`, and `ptr`. Returns `0` for unrecognized type names.",
+      "params": [
+        {
+          "name": "type",
+          "type": "string",
+          "description": "Type name string, e.g. `\"u32\"` or `\"ptr\"`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "description": "Size in bytes (1, 2, 4, or 8), or `0` for an unrecognized type."
+        }
+      ]
+    },
+    {
+      "name": "unwrap_userdata",
+      "description": "Extracts the raw pointer address from a light userdata value and returns it as a number.",
+      "params": [
+        {
+          "name": "userdata",
+          "type": "any",
+          "description": "A light userdata value."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "description": "The underlying pointer address."
+        }
+      ]
+    },
+    {
+      "name": "protect",
+      "description": "Changes the memory protection of a region using `VirtualProtect`. The `rights` string is a combination of the letters `r` (read), `w` (write), and `x` (execute); e.g. `\"rwx\"`, `\"rx\"`, `\"r\"`. Returns `true` on success, `false` on failure.",
+      "note": "The rights string is parsed character-by-character (case-insensitive). Any combination of `r`, `w`, `x` maps to the corresponding `PAGE_*` constant. An empty or unrecognized string maps to `PAGE_NOACCESS`.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Base address of the region." },
+        { "name": "size", "type": "number", "description": "Size of the region in bytes." },
+        { "name": "rights", "type": "string", "description": "Protection string, e.g. `\"rwx\"`, `\"rx\"`, `\"r\"`." }
+      ],
+      "returns": [
+        { "type": "boolean", "description": "`true` if `VirtualProtect` succeeded, `false` otherwise." }
+      ]
+    },
+    {
+      "name": "query",
+      "description": "Queries virtual memory information for the page containing `address` via `VirtualQuery`. Returns a table of region attributes, or nothing if the query fails.",
+      "note": "Protection strings use the same format as `mem.protect` plus modifier suffixes: `+g` (guard), `+n` (no-cache), `+w` (write-combine). The `state` field is `\"commit\"`, `\"reserve\"`, or `\"free\"`. The `type` field is `\"image\"`, `\"mapped\"`, or `\"private\"`.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Any address within the memory region to query." }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "optional": true,
+          "description": "A table with fields: `base` (number), `alloc_base` (number), `size` (number), `state` (string), `protect` (string), `alloc_protect` (string), `type` (string). Returns nothing if `VirtualQuery` fails."
+        }
+      ]
+    },
+    {
+      "name": "deref",
+      "description": "Follows a multi-level pointer chain starting from `base`. For each offset in the table, the offset is added to the current address and (for all but the last offset) the result is dereferenced as a 64-bit pointer. Returns the final computed address, or nothing if any intermediate pointer is null or causes an access violation.",
+      "note": "The offsets table is a sequential array. Negative offsets are allowed. After the last offset is applied the result is returned as an address without dereferencing.",
+      "params": [
+        { "name": "base", "type": "number", "description": "Starting address." },
+        { "name": "offsets", "type": "table", "description": "Ordered array of integer offsets to apply." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The resolved address, or nothing if the chain is broken." }
+      ]
+    },
+    {
+      "name": "heaps",
+      "description": "Enumerates all committed heap regions in the current process. Returns a table of `{base, size}` entries, one per heap region.",
+      "params": [],
+      "returns": [
+        {
+          "type": "table",
+          "description": "Array of tables, each with `base` (number, region start address) and `size` (number, committed bytes)."
+        }
+      ]
+    },
+    {
+      "name": "scan",
+      "description": [
+        "Scans a memory region for a byte pattern. The pattern is an IDA-style hex string where each byte is a two-digit hex value and `??` denotes a wildcard byte, e.g. `\"48 89 5C ?? ?? 48 8B\"`.",
+        "",
+        "When `no_mask` is `false` (the default), the pattern is first parsed for explicit `??` wildcards. If no wildcards are present, an auto-masking heuristic is applied to detect relative offsets and other position-dependent bytes, replacing them with `??` automatically and printing the masked form to the console.",
+        "",
+        "Returns the address of the first match, or nothing if not found."
+      ],
+      "params": [
+        { "name": "base", "type": "number", "description": "Start of the region to scan." },
+        { "name": "size", "type": "number", "description": "Length of the region in bytes." },
+        { "name": "pattern", "type": "string", "description": "IDA-style hex pattern, e.g. `\"48 89 5C ?? ?? 48 8B\"`." },
+        { "name": "no_mask", "type": "boolean", "optional": true, "description": "If `true`, disables auto-masking and treats the pattern as a literal byte string (no wildcard substitution). Defaults to `false`." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "Address of the first match, or nothing if not found." }
+      ]
+    },
+    {
+      "name": "memory_scan",
+      "description": [
+        "Scans all committed readable pages in the entire process for a byte pattern. Uses the same pattern format and auto-masking logic as `mem.scan`.",
+        "",
+        "Adjacent pages with the same protection flags are coalesced into a single scan region. Regions smaller than `min_size` bytes are skipped.",
+        "",
+        "Returns a table containing the address of every match found."
+      ],
+      "note": "The scan excludes the internal buffer holding the parsed pattern bytes to avoid false positives.",
+      "params": [
+        { "name": "pattern", "type": "string", "description": "IDA-style hex pattern, e.g. `\"48 89 5C ?? ?? 48 8B\"`." },
+        { "name": "no_mask", "type": "boolean", "optional": true, "description": "If `true`, disables auto-masking. Defaults to `false`." },
+        { "name": "min_size", "type": "number", "optional": true, "description": "Minimum region size in bytes to include in the scan. Defaults to `0x10000` (65536)." }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "Array of addresses (numbers) where the pattern was found. Empty if no matches."
+        }
+      ]
+    },
+    {
+      "name": "addr_to_pat",
+      "description": "Converts a 64-bit address to an IDA-style little-endian byte pattern string. Useful for building patterns that contain an absolute address.",
+      "params": [
+        { "name": "address", "type": "number", "description": "The address to convert." }
+      ],
+      "returns": [
+        { "type": "string", "description": "An 8-byte little-endian hex pattern, e.g. `\"78 56 34 12 00 00 00 00\"`." }
+      ]
+    },
+    {
+      "name": "to_binary_string",
+      "description": "Copies `size` bytes from `address` and returns them as a binary Lua string. Useful for taking memory snapshots or passing raw data to other APIs.",
+      "params": [
+        { "name": "address", "type": "number", "description": "Start of the memory region." },
+        { "name": "size", "type": "number", "description": "Number of bytes to copy." }
+      ],
+      "returns": [
+        { "type": "string", "description": "A binary string containing the raw bytes." }
+      ]
+    },
+    {
+      "name": "function_to_ptr",
+      "description": "Returns the native code pointer of a C function. If the function is not a C function, returns `nil`.",
+      "params": [
+        { "name": "func", "type": "function", "description": "A Lua C function." }
+      ],
+      "returns": [
+        { "type": "number", "optional": true, "description": "The native code address, or `nil` if the function is not a C function." }
+      ]
+    },
+    {
+      "name": "upvalue",
+      "description": "Retrieves an upvalue from a function by index, bypassing any sandbox restrictions on `debug.getupvalue`. Returns the upvalue's value and its name.",
+      "params": [
+        { "name": "func", "type": "function", "description": "The function whose upvalue to retrieve." },
+        { "name": "index", "type": "number", "description": "1-based upvalue index." }
+      ],
+      "returns": [
+        { "type": "any", "optional": true, "description": "The upvalue's value, or nothing if the index is out of range." },
+        { "type": "string", "optional": true, "description": "The upvalue's name, or nothing if the index is out of range." }
+      ]
+    }
+  ]
+}

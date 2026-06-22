@@ -1,0 +1,299 @@
+{
+  "namespace": "module",
+  "description": "Functions for inspecting and interacting with loaded Windows modules (DLLs/EXEs) in the current process. Module handles are opaque `lightuserdata` values obtained from `find`, `enumerate`, or `get_from_addr`. Memory addresses are plain `number` values (doubles representing 64-bit integers).",
+  "functions": [
+    {
+      "name": "find",
+      "description": "Looks up a loaded module by name and returns its handle. The name is matched against the base filename (e.g. `\"engine.dll\"`). Returns `nil` if no module with that name is currently loaded.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "description": "The module filename to search for (e.g. `\"engine.dll\"`)."
+        }
+      ],
+      "returns": [
+        {
+          "type": "lightuserdata?",
+          "optional": true,
+          "description": "The module handle, or `nil` if not found."
+        }
+      ]
+    },
+    {
+      "name": "name",
+      "description": "Returns the base filename of a module given its handle (e.g. `\"engine.dll\"`). Returns an empty string if the name cannot be retrieved.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle obtained from `find`, `enumerate`, or `get_from_addr`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "string",
+          "description": "The base filename of the module, or `\"\"` on failure."
+        }
+      ]
+    },
+    {
+      "name": "base",
+      "description": "Returns the load address (image base) of the module as a number. Returns `0` if the module handle is invalid or the info cannot be retrieved.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "description": "The base address of the module, or `0` if unavailable."
+        }
+      ]
+    },
+    {
+      "name": "size",
+      "description": "Returns the size (in bytes) of the module's mapped image. Returns `0` if the module handle is invalid.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "description": "The size of the module image in bytes."
+        }
+      ]
+    },
+    {
+      "name": "export",
+      "description": "Resolves a named export from a module and returns its address. Returns `0` if the export does not exist.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "The export name to resolve."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "description": "The address of the exported symbol, or `0` if not found."
+        }
+      ]
+    },
+    {
+      "name": "bind_export",
+      "description": "Resolves a named export and returns a Lua callable bound to that address using the given FFI call signature (via `lje.ffi.call.bind`). Returns `nil` if the export does not exist.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "description": "The export name to resolve."
+        },
+        {
+          "name": "signature",
+          "type": "string",
+          "description": "A call signature string accepted by `lje.ffi.call.bind` (e.g. `\"void(int, float)\"`)."
+        }
+      ],
+      "returns": [
+        {
+          "type": "function?",
+          "optional": true,
+          "description": "A bound callable for the export, or `nil` if the export was not found."
+        }
+      ]
+    },
+    {
+      "name": "exports",
+      "description": "Enumerates all named exports of a module by parsing its PE export directory. Returns a table mapping each export name to its absolute address as a number. Returns an empty table if the module has no export directory or has an invalid PE header.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "A table of the form `{ [exportName: string] = address: number, ... }`."
+        }
+      ]
+    },
+    {
+      "name": "enumerate",
+      "description": "Returns an array of handles for all modules currently loaded in the process. The handle array is populated via `EnumProcessModules` and is capped at 1024 entries.",
+      "params": [],
+      "returns": [
+        {
+          "type": "table",
+          "description": "An array-like table of `lightuserdata` module handles: `{ handle, ... }`."
+        }
+      ]
+    },
+    {
+      "name": "scan",
+      "description": [
+        "Scans the `.text` section of a module for a byte pattern and returns the address(es) of matches.",
+        "",
+        "The pattern is a hex string of space-separated bytes, where `?` or `??` acts as a wildcard (e.g. `\"48 8B ? ? ? ? ? 48\"`). When `no_mask` is `false` (the default), the scanner applies automatic masking to skip bytes that vary between builds (e.g. relative offsets in instructions). If the pattern already contains wildcards, automatic masking is bypassed.",
+        "",
+        "When `all` is `false` (default), the first match is returned as a `number`, or `nil` if nothing was found. When `all` is `true`, all matches are returned as an array of `number` addresses."
+      ],
+      "note": "Automatic masking may print a diagnostic line to stdout showing the original and masked patterns. Pass `no_mask = true` to suppress this.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        },
+        {
+          "name": "pattern",
+          "type": "string",
+          "description": "Hex byte pattern, space-separated, with `?` or `??` as wildcards."
+        },
+        {
+          "name": "no_mask",
+          "type": "boolean",
+          "optional": true,
+          "description": "If `true`, disables automatic masking and uses the pattern exactly as given. Defaults to `false`."
+        },
+        {
+          "name": "all",
+          "type": "boolean",
+          "optional": true,
+          "description": "If `true`, returns all matches instead of only the first. Defaults to `false`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number | table | nil",
+          "description": "When `all` is `false`: the address of the first match as a `number`, or `nil` if not found. When `all` is `true`: an array-like table of match addresses (`{ number, ... }`)."
+        }
+      ]
+    },
+    {
+      "name": "sections",
+      "description": "Returns a list of all PE sections in the module with their metadata.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "An array of section info tables, each with fields: `name` (string), `base` (number — start address), `size` (number — byte size), `characteristics` (number — PE section flags bitmask)."
+        }
+      ]
+    },
+    {
+      "name": "is_system",
+      "description": "Returns whether the module's file path resides under the Windows directory (e.g. `C:\\Windows\\`). Useful for filtering out OS system DLLs from enumeration results. Returns `false` if the module path cannot be determined.",
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "`true` if the module is a system library residing under the Windows directory, `false` otherwise."
+        }
+      ]
+    },
+    {
+      "name": "rtti_classes",
+      "description": [
+        "Enumerates all MSVC RTTI classes present in the module by scanning its `.rdata` section for valid `RTTICompleteObjectLocator` (COL) structures, then searching all non-executable data sections for vtable back-pointers.",
+        "",
+        "Each entry in the returned array is a table with the following fields:",
+        "- `name` (string) — the raw mangled RTTI type descriptor name (e.g. `\".?AVFoo@@\"`). Pass to `demangle` to get a human-readable name.",
+        "- `col` (number) — address of the `RTTICompleteObjectLocator`.",
+        "- `td` (number) — address of the `RTTITypeDescriptor`.",
+        "- `vtable` (number, optional) — address of the vtable (the pointer immediately after the COL back-pointer). Absent if no vtable back-pointer was found.",
+        "",
+        "Classes with multiple inheritance may appear multiple times (once per COL/vtable sub-object). Requires the target module to have been compiled with RTTI enabled (`/GR`)."
+      ],
+      "params": [
+        {
+          "name": "handle",
+          "type": "lightuserdata",
+          "description": "A module handle."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "description": "An array of class info tables `{ name, col, td, vtable? }`. Returns an empty table if the module is invalid or has no `.rdata` section."
+        }
+      ]
+    },
+    {
+      "name": "demangle",
+      "description": [
+        "Demangles an MSVC symbol or RTTI type descriptor name into a human-readable C++ name.",
+        "",
+        "Handles three input forms:",
+        "- **Regular decorated names** starting with `?` (e.g. `\"?Foo@Bar@@QAEHXZ\"`) — passed directly to `UnDecorateSymbolName`.",
+        "- **RTTI type descriptor names** starting with `.?A` (e.g. `\".?AVIRecipientFilter@@\"`) — the `.?A<kind>` prefix is stripped and name components are reassembled in `Outer::Inner` order. Template names are wrapped in a dummy function signature for DbgHelp to decode the parameters.",
+        "- **Anything else** — returned unchanged.",
+        "",
+        "Anonymous namespace components (`?A0x<hex>`) are normalized to `(anonymous namespace)`."
+      ],
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "description": "A mangled MSVC symbol name or RTTI type descriptor name."
+        }
+      ],
+      "returns": [
+        {
+          "type": "string",
+          "description": "The demangled C++ name, or the original string if demangling is not applicable or fails."
+        }
+      ]
+    },
+    {
+      "name": "get_from_addr",
+      "description": "Given an arbitrary memory address, returns the handle of the module that owns that address (if any). Uses `GetModuleHandleExA` with `GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS`. Returns `nil` if the address does not belong to any loaded module.",
+      "params": [
+        {
+          "name": "addr",
+          "type": "number",
+          "description": "A memory address to query."
+        }
+      ],
+      "returns": [
+        {
+          "type": "lightuserdata?",
+          "optional": true,
+          "description": "The handle of the module that contains `addr`, or `nil` if no module owns that address."
+        }
+      ]
+    }
+  ]
+}

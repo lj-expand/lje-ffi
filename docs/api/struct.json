@@ -1,0 +1,264 @@
+{
+  "namespace": "struct",
+  "description": "Parses C struct/union definitions at runtime and reads or writes them in process memory. Struct type names are stored in a global registry shared across all calls.",
+  "functions": [
+    {
+      "name": "define",
+      "description": [
+        "Parses a C struct or union definition string and registers the type for use with `read`, `write`, `cast`, `sizeof`, `offsetof`, and `fields`.",
+        "",
+        "**Grammar summary:**",
+        "```",
+        "definition  ::= ('struct' | 'union') NAME '{' field* '}' ';'?",
+        "field       ::= attr* ('padding' | 'offset') '[' N ']' ';'",
+        "              | attr* type NAME ('[' N ']')? ';'",
+        "attr        ::= '[[string]]' | '[[unaligned]]'",
+        "type        ::= base_type '*'?",
+        "base_type   ::= NAME                    -- previously-defined struct/union",
+        "              | 'char' | 'signed char' | 'unsigned char'",
+        "              | 'short' | 'signed short' | 'unsigned short'",
+        "              | 'int'   | 'signed int'   | 'unsigned int'",
+        "              | 'long'  | 'signed long'  | 'unsigned long'",
+        "              | 'long long' | 'signed long long' | 'unsigned long long'",
+        "              | 'float' | 'double'",
+        "              | 'bool'",
+        "              | 'int8_t' | 'uint8_t' | 'int16_t' | 'uint16_t'",
+        "              | 'int32_t' | 'uint32_t' | 'int64_t' | 'uint64_t'",
+        "              | 'size_t' | 'uintptr_t' | 'intptr_t' | 'ptrdiff_t'",
+        "```",
+        "",
+        "**Special field forms:**",
+        "- `padding[N];` — advances the current byte offset by `N` bytes (structs only; ignored in unions).",
+        "- `offset[N];` — sets the current byte offset to an absolute value `N`, bypassing the automatic alignment of the next field.",
+        "- `[[string]]` — attribute placed before a field. On a `char[N]` field it causes `read` to return a Lua string instead of a table; on a pointer field (`char*`) it dereferences the pointer and returns the null-terminated string. When writing, a Lua string is copied into the buffer (null-padded to capacity).",
+        "- `[[unaligned]]` — skips automatic alignment padding before this field.",
+        "- Pointers (`T*`) are always 8 bytes (x86-64). A single `*` suffix is supported.",
+        "- **`long` is 4 bytes** on MSVC (Windows x64), matching the platform ABI.",
+        "- C `//` and `/* */` comments are stripped by the tokenizer.",
+        "- Nested struct/union types (defined previously via `define`) may be used as field types.",
+        "- Layout follows the standard C ABI: each field is aligned to its natural alignment; the struct total size is padded to a multiple of the maximum field alignment."
+      ],
+      "params": [
+        {
+          "name": "cdef",
+          "type": "string",
+          "description": "A C struct or union definition string, e.g. `\"struct Vec3 { float x; float y; float z; }\"`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "Returns `true` on success."
+        },
+        {
+          "type": "boolean, string",
+          "optional": true,
+          "description": "On parse failure, returns `false` followed by a human-readable error message describing the parse problem."
+        }
+      ],
+      "errors": [
+        "FFI_AUTH_CALL: raises a Lua error if the call is not permitted by the watchdog/auth system."
+      ]
+    },
+    {
+      "name": "sizeof",
+      "description": "Returns the total byte size of a named type. Works for both previously-defined struct/union types and all built-in primitive C types (`int`, `float`, `uint64_t`, etc.).",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "description": "The type name to query, e.g. `\"MyStruct\"` or `\"unsigned int\"`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "optional": true,
+          "description": "The size in bytes, or `nil` if the type is not recognized."
+        }
+      ],
+      "errors": [
+        "FFI_AUTH_CALL: raises a Lua error if the call is not permitted by the watchdog/auth system."
+      ]
+    },
+    {
+      "name": "offsetof",
+      "description": "Returns the byte offset of a field within a previously-defined struct or union type.",
+      "params": [
+        {
+          "name": "struct_name",
+          "type": "string",
+          "description": "The name of the struct or union type."
+        },
+        {
+          "name": "field_name",
+          "type": "string",
+          "description": "The name of the field."
+        }
+      ],
+      "returns": [
+        {
+          "type": "number",
+          "optional": true,
+          "description": "The byte offset of the field from the start of the struct, or `nil` if the struct or field is not found."
+        }
+      ],
+      "errors": [
+        "FFI_AUTH_CALL: raises a Lua error if the call is not permitted by the watchdog/auth system."
+      ]
+    },
+    {
+      "name": "fields",
+      "description": [
+        "Returns a sequential table describing every field in a previously-defined struct or union type. Each entry is a table with the following keys:",
+        "",
+        "| Key | Type | Description |",
+        "|-----|------|-------------|",
+        "| `name` | `string` | Field name |",
+        "| `type` | `string` | C type string as written in the definition |",
+        "| `offset` | `number` | Byte offset from struct base |",
+        "| `size` | `number` | Total byte size of the field (element size × count for arrays) |",
+        "| `count` | `number` | *(arrays only)* Number of elements |",
+        "| `string` | `boolean` | *(if present)* `true` when the `[[string]]` attribute was set |"
+      ],
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "description": "The name of the struct or union type."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "optional": true,
+          "description": "A sequential table of field-descriptor tables, or `nil` if the type is not registered."
+        }
+      ],
+      "errors": [
+        "FFI_AUTH_CALL: raises a Lua error if the call is not permitted by the watchdog/auth system."
+      ]
+    },
+    {
+      "name": "read",
+      "description": [
+        "Reads a struct or union from memory and returns it as a Lua table. The table keys are field names; values are mapped as follows:",
+        "",
+        "- **Primitive / pointer fields** — returned as `number`.",
+        "- **`[[string]]` char array** (`char[N]`) — returned as `string` (read up to the first null byte).",
+        "- **`[[string]]` pointer** (`char*`) — the pointer is dereferenced and the null-terminated string is returned, or `nil` if the pointer is null.",
+        "- **Array fields** — returned as a 1-based sequential Lua table of values.",
+        "- **Nested struct/union fields** — returned as a nested Lua table with the same structure recursively.",
+        "",
+        "All numeric values are Lua `number` (double). Signed types are sign-extended; 64-bit integers may lose precision beyond 2^53."
+      ],
+      "note": "Addresses are raw memory addresses passed as Lua numbers. No bounds checking is performed; passing an invalid address will crash the host process.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "The memory address to read from."
+        },
+        {
+          "name": "type_name",
+          "type": "string",
+          "description": "The name of the previously-defined struct or union type."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "optional": true,
+          "description": "A table mapping field names to their values, or `nil` if the type name is not registered."
+        }
+      ],
+      "errors": [
+        "FFI_AUTH_CALL: raises a Lua error if the call is not permitted by the watchdog/auth system."
+      ]
+    },
+    {
+      "name": "write",
+      "description": [
+        "Writes fields from a Lua table into memory at the given address using a previously-defined struct or union layout.",
+        "",
+        "- Fields present in the table are written; fields absent (nil) are silently skipped.",
+        "- **Primitive / pointer fields** — the table value must be a `number`.",
+        "- **`[[string]]` char array** (`char[N]`) — the table value must be a `string`; it is copied into the buffer and null-padded to the field's full capacity.",
+        "- **Array fields** — the table value must be a sequential Lua table; absent elements (nil entries) within the array are skipped.",
+        "- **Nested struct/union fields** — the table value must be a nested table, written recursively.",
+        "",
+        "This function does **not** perform type-checking. Passing a wrong Lua type for a field will silently write garbage or zero. Use `cast` for field-level type-checked writes."
+      ],
+      "note": "Addresses are raw memory addresses passed as Lua numbers. No bounds checking is performed; passing an invalid address will crash the host process.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "The memory address to write to."
+        },
+        {
+          "name": "type_name",
+          "type": "string",
+          "description": "The name of the previously-defined struct or union type."
+        },
+        {
+          "name": "data",
+          "type": "table",
+          "description": "A table whose keys are field names and whose values are the data to write."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "`true` if the struct type was found and the write was attempted. `false` if the type name is not registered (nothing is written)."
+        }
+      ],
+      "errors": [
+        "FFI_AUTH_CALL: raises a Lua error if the call is not permitted by the watchdog/auth system."
+      ]
+    },
+    {
+      "name": "cast",
+      "description": [
+        "Returns a proxy table bound to a raw memory address and a struct type. Field reads and writes on the proxy go directly to memory through `__index` and `__newindex` metamethods — no intermediate Lua table is created for the whole struct.",
+        "",
+        "**Reading a field** (`proxy.field`) behaves identically to the field-read rules of `read`.",
+        "",
+        "**Writing a field** (`proxy.field = value`) performs type-checked writes:",
+        "- A wrong Lua type raises a descriptive Lua error (e.g. `ffi.struct: field 'x' of 'Vec3' expects a number`).",
+        "- Array elements that are nil are skipped; a wrong element type raises an error naming the index.",
+        "",
+        "The special key `__address` always returns the bound address as a `number`, regardless of whether the struct has a field with that name.",
+        "",
+        "Returns `nil` if `type_name` is not a registered struct/union."
+      ],
+      "note": "Addresses are raw memory addresses. No bounds checking is performed; an invalid address will crash the host process when a field is accessed.",
+      "params": [
+        {
+          "name": "ptr",
+          "type": "number",
+          "description": "The memory address to bind the proxy to. Also accepts a lightuserdata pointer directly."
+        },
+        {
+          "name": "type_name",
+          "type": "string",
+          "description": "The name of the previously-defined struct or union type."
+        }
+      ],
+      "returns": [
+        {
+          "type": "table",
+          "optional": true,
+          "description": "A proxy table whose `__index`/`__newindex` metamethods read and write fields at the bound address, or `nil` if the type is not registered."
+        }
+      ],
+      "errors": [
+        "FFI_AUTH_CALL: raises a Lua error if the call is not permitted by the watchdog/auth system.",
+        "ffi.struct: field '<name>' of '<type>' expects <type> — raised on __newindex when the assigned value has the wrong Lua type.",
+        "ffi.struct: element <N> of field '<name>' expects <type> — raised on __newindex when an array element has the wrong Lua type.",
+        "ffi.struct: no field '<name>' in struct '<type>' — raised on __newindex when the key does not match any field.",
+        "ffi.struct: non-string field key on struct '<type>' — raised on __newindex when the key is not a string."
+      ]
+    }
+  ]
+}

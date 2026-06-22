@@ -1,0 +1,143 @@
+{
+  "namespace": "hook",
+  "description": "Installs inline x86-64 detours via MinHook and libffi closures. Each created hook intercepts calls to a target address and routes them through a Lua callback. The callback can inspect or modify arguments and optionally call the original function. Hook objects returned by `create` and `create_bind` are garbage-collected userdata: when the last Lua reference is dropped the hook is automatically disabled and all resources are freed.",
+  "functions": [
+    {
+      "name": "create",
+      "description": [
+        "Creates an inline detour on `target` using the given type signature and installs it immediately. The hooked function is intercepted at the machine-code level; every call to `target` will invoke `callback` instead.",
+        "",
+        "**Signature format:** a string whose first character encodes the return type and whose remaining characters encode each argument type in left-to-right order. Type codes:",
+        "",
+        "| Code | C type |",
+        "|------|--------|",
+        "| `v`  | void (return only) |",
+        "| `i`  | int32_t |",
+        "| `u`  | uint32_t |",
+        "| `l`  | int64_t |",
+        "| `f`  | float |",
+        "| `d`  | double |",
+        "| `b`  | bool / uint8_t |",
+        "| `p`  | pointer (passed as `number`) |",
+        "| `s`  | const char\\* (passed as `string`, or `0` if null) |",
+        "",
+        "**Callback signature:** `function(original: number, arg1, arg2, ...) -> return_value?`",
+        "",
+        "The first argument passed to the callback is the trampoline address as a raw `number`. You can call the original function by passing it to `ffi.call` (or an equivalent bound call). The remaining arguments are the intercepted function's arguments, marshalled to Lua according to the signature. The callback's return value is marshalled back to C; if the callback raises an error, the original function is called via the trampoline automatically.",
+        "",
+        "Returns `nil` (no values) on any failure (bad signature, MinHook error, duplicate hook on the same target address)."
+      ],
+      "params": [
+        {
+          "name": "target",
+          "type": "number",
+          "description": "Address of the function to hook."
+        },
+        {
+          "name": "signature",
+          "type": "string",
+          "description": "Type signature string. First character is the return type; remaining characters are argument types. See the type-code table above."
+        },
+        {
+          "name": "callback",
+          "type": "function",
+          "description": "Lua function called in place of the hooked function. Receives `(original: number, ...args)` where `original` is the trampoline address and `args` are the intercepted arguments."
+        }
+      ],
+      "returns": [
+        {
+          "type": "userdata",
+          "optional": true,
+          "description": "A hook handle. The hook is active immediately. Holds a strong reference to `callback`. When garbage-collected the hook is automatically disabled and removed. Returns nothing on failure."
+        }
+      ]
+    },
+    {
+      "name": "create_bind",
+      "description": [
+        "Creates an inline detour using a bound closure produced by `ffi.call.bind`. The target address and type signature are extracted automatically from the closure's upvalues, so you do not need to supply them separately.",
+        "",
+        "Unlike `create`, the original function is passed to the callback as a **callable bound closure** (identical in shape to what `ffi.call.bind` returns) rather than as a raw trampoline address. This makes it convenient to call the original without a separate `ffi.call` invocation.",
+        "",
+        "**Callback signature:** `function(original: function, arg1, arg2, ...) -> return_value?`",
+        "",
+        "Returns two values on success, or nothing on failure."
+      ],
+      "params": [
+        {
+          "name": "bound_fn",
+          "type": "function",
+          "description": "A bound closure previously created with `ffi.call.bind`. The target address and type signature are read from its upvalues."
+        },
+        {
+          "name": "callback",
+          "type": "function",
+          "description": "Lua function called in place of the hooked function. Receives `(original: function, ...args)` where `original` is a callable bound closure for the trampoline and `args` are the intercepted arguments."
+        }
+      ],
+      "returns": [
+        {
+          "type": "userdata",
+          "optional": true,
+          "description": "A hook handle (same semantics as `create`). Returns nothing on failure."
+        },
+        {
+          "type": "function",
+          "optional": true,
+          "description": "A bound closure wrapping the trampoline (original function). Has the same calling convention as a `ffi.call.bind` result. Only present when the first return value is present."
+        }
+      ]
+    },
+    {
+      "name": "remove",
+      "description": "Disables and permanently destroys the hook, freeing the libffi closure and releasing the Lua callback reference. After removal the hook handle is inert; calling any function on it will return `false`. Equivalent to dropping all Lua references to the handle and forcing GC, but immediate.",
+      "params": [
+        {
+          "name": "hook",
+          "type": "userdata",
+          "description": "The hook handle returned by `create` or `create_bind`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "`true` if the hook was successfully removed, `false` if the handle was already destroyed or invalid."
+        }
+      ]
+    },
+    {
+      "name": "enable",
+      "description": "Re-enables a hook that was previously disabled with `disable`. Has no effect (returns `false`) if the hook is already enabled or has been removed.",
+      "params": [
+        {
+          "name": "hook",
+          "type": "userdata",
+          "description": "The hook handle returned by `create` or `create_bind`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "`true` if MinHook successfully re-enabled the hook, `false` if it was already enabled, destroyed, or if MinHook returned an error."
+        }
+      ]
+    },
+    {
+      "name": "disable",
+      "description": "Temporarily disables the hook so that calls to the target address pass through to the original function. The hook object and its callback reference are kept alive; call `enable` to reinstate interception. Has no effect (returns `false`) if the hook is already disabled or has been removed.",
+      "params": [
+        {
+          "name": "hook",
+          "type": "userdata",
+          "description": "The hook handle returned by `create` or `create_bind`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "boolean",
+          "description": "`true` if MinHook successfully disabled the hook, `false` if it was already disabled, destroyed, or if MinHook returned an error."
+        }
+      ]
+    }
+  ]
+}

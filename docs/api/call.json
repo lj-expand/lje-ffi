@@ -1,0 +1,114 @@
+{
+  "namespace": "call",
+  "description": "Functions for calling arbitrary C functions at runtime via libffi. Addresses are plain Lua numbers (doubles). All functions use a compact **signature string** to describe the return type and argument types: the first character is the return type, and each subsequent character is an argument type, in order.\n\nValid type characters: `v` void, `i` int32, `u` uint32, `l` int64, `f` float, `d` double, `b` uint8/bool, `p` pointer (number), `s` string (char*).",
+  "functions": [
+    {
+      "name": "invoke",
+      "description": [
+        "Calls the C function at `address` immediately using the given type signature and arguments. This is a direct, unprotected call — no watchdog timer or SEH exception guard is active. If the callee crashes or hangs, the host process is affected directly.",
+        "",
+        "On success the return value is pushed according to the return type character in `signature`: numeric types become `number`, `b` becomes `boolean`, `s` becomes `string` (or nothing if the pointer is NULL), and `v` returns nothing.",
+        "",
+        "On error (unrecognised signature or libffi CIF preparation failure) a single error `string` is returned instead of the normal return value."
+      ],
+      "note": "No crash or timeout protection. For safer calls, use `lje.call.bind` and invoke the resulting closure, which runs under a 100 ms watchdog with SEH exception handling.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Address of the C function to call."
+        },
+        {
+          "name": "signature",
+          "type": "string",
+          "description": "Type signature string. First character is the return type (`v i u l f d b p s`), remaining characters are argument types in order."
+        },
+        {
+          "name": "...",
+          "type": "any...",
+          "description": "Arguments to pass to the function. Must match the argument type characters in `signature` in count and kind: numeric types and pointers expect `number`, `b` expects a value coerced by `toboolean`, and `s` expects a `string`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "any",
+          "optional": true,
+          "description": "The function's return value, marshalled to a Lua type according to the return type character, or a `string` error message if the signature was invalid. `v` (void) and a NULL `s` return push nothing."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "invoke_var",
+      "description": [
+        "Calls a **variadic** C function at `address`. The signature covers both fixed and variadic arguments; `fixed_count` tells libffi how many leading arguments are fixed (non-variadic). All argument values are still passed explicitly — `fixed_count` only affects how libffi builds the ABI frame.",
+        "",
+        "Argument values start after `address`, `signature`, and `fixed_count`, so the first argument maps to the first type character in `signature`.",
+        "",
+        "On error a single error `string` is returned. The same return-value marshalling rules as `invoke` apply."
+      ],
+      "note": "Like `invoke`, this call is unprotected. Crashes or infinite loops in the callee will affect the host process directly.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Address of the variadic C function to call."
+        },
+        {
+          "name": "signature",
+          "type": "string",
+          "description": "Type signature string covering all arguments (fixed + variadic). First character is the return type."
+        },
+        {
+          "name": "fixed_count",
+          "type": "number",
+          "description": "Number of fixed (non-variadic) arguments. Must not exceed the total argument count encoded in `signature`."
+        },
+        {
+          "name": "...",
+          "type": "any...",
+          "description": "All arguments (fixed and variadic) in order, marshalled by the corresponding type characters in `signature`."
+        }
+      ],
+      "returns": [
+        {
+          "type": "any",
+          "optional": true,
+          "description": "The function's return value, marshalled to a Lua type, or a `string` error message on failure."
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "bind",
+      "description": [
+        "Creates and returns a Lua **closure** that calls the C function at `address` with the fixed type `signature`. The closure accepts exactly the argument count encoded in `signature` and can be called repeatedly without re-specifying the address or signature.",
+        "",
+        "Unlike `invoke`, the generated closure runs under **SEH exception protection and a 100 ms watchdog timer**. If the callee raises a hardware exception (access violation, illegal instruction, divide-by-zero, stack overflow, etc.) or takes longer than 100 ms, the closure returns three values: `false`, an error description string, and the faulting address as a number. On success it returns the normal marshalled return value.",
+        "",
+        "On error during binding (invalid signature or CIF preparation failure) a single error `string` is returned instead of a function."
+      ],
+      "note": "The watchdog fires after 100 ms and terminates the call with a `\"watchdog timeout\"` error string. The CIF is cached, so repeated `bind` calls with the same signature are cheap.",
+      "params": [
+        {
+          "name": "address",
+          "type": "number",
+          "description": "Address of the C function to bind."
+        },
+        {
+          "name": "signature",
+          "type": "string",
+          "description": "Type signature string. First character is the return type, remaining characters are argument types."
+        }
+      ],
+      "returns": [
+        {
+          "type": "function",
+          "optional": true,
+          "description": "A closure `f(...)` that calls the target function. On success it returns the marshalled return value. On a hardware exception or watchdog timeout it returns `false, error_string, fault_address`. On binding failure a `string` error is returned here instead of a function."
+        }
+      ],
+      "errors": []
+    }
+  ]
+}

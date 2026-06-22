@@ -1,0 +1,130 @@
+{
+  "namespace": "tcc",
+  "description": "Compiles and runs C source at runtime using the bundled TinyCC (libtcc) compiler. The runtime is extracted lazily from an embedded zip into `%USERPROFILE%\\.lje\\cache\\ffi-tcc\\` on first use. Compiled programs are returned as garbage-collected userdata objects with methods for resolving symbols.",
+  "functions": [
+    {
+      "name": "compile",
+      "description": [
+        "Compiles a C source string with TinyCC and returns a **Program** object whose symbols can be resolved with `program:get` or called with `program:bind`.",
+        "",
+        "By default an LJE/Lua prelude is prepended to the source. The prelude defines `g_api` (a pointer to the host `LjeApi`), `g_L` (the ambient main `lua_State`), and `#define` shims for the common `lua_*` functions so compiled C can interact with Lua. It also exposes `lje_get_api()` and `lje_get_state()` as callable accessors.",
+        "",
+        "Pass `{ prelude = false }` in `opts` to compile plain C without any injected preamble (e.g. when calling into an entirely self-contained library).",
+        "",
+        "On success returns the Program userdata. On failure returns `nil` followed by a diagnostic string from libtcc.",
+        "",
+        "**Important:** due to a bug in the prebuilt win64 `libtcc.dll`, fatal parse errors cause an internal `longjmp` with broken x64 unwind data. The module works around this with `RtlRestoreContext` to safely recover control — the diagnostic is still captured and returned as the second value."
+      ],
+      "note": "TinyCC targets C99 and supports a subset of C. C++ and platform intrinsics are not available. `static` symbols have internal linkage and are not visible via `program:get`.",
+      "params": [
+        {
+          "name": "source",
+          "type": "string",
+          "description": "The C source code to compile."
+        },
+        {
+          "name": "opts",
+          "type": "table",
+          "optional": true,
+          "description": "Optional settings table. Set `opts.prelude = false` to skip the injected LJE/Lua prelude."
+        }
+      ],
+      "returns": [
+        {
+          "type": "userdata",
+          "optional": true,
+          "description": "A Program object on success. `nil` on failure."
+        },
+        {
+          "type": "string",
+          "optional": true,
+          "description": "A libtcc diagnostic/error string. Only present on failure."
+        }
+      ],
+      "errors": [
+        "Returns nil + error string if source is not a string",
+        "Returns nil + error string if the TCC runtime bundle cannot be extracted or libtcc.dll cannot be loaded",
+        "Returns nil + error string if compilation fails (libtcc diagnostic included)",
+        "Returns nil + error string if relocation fails after a successful compile"
+      ]
+    }
+  ],
+  "classes": [
+    {
+      "name": "Program",
+      "receiver": "program",
+      "description": "A compiled C program returned by `lje.tcc.compile`. It owns the libtcc compilation state and the relocated machine code, and is garbage-collected — keep a reference for as long as you call into its symbols. Methods resolve external-linkage symbols to addresses or to callable closures.",
+      "methods": [
+        {
+          "name": "get",
+          "description": [
+            "Looks up a named symbol in the compiled Program and returns its address as a number.",
+            "",
+            "Only symbols with **external linkage** are visible — `static` functions and variables are not. The returned address can be passed to `ffi.call`, `ffi.hook`, or other address-taking APIs.",
+            "",
+            "Returns `nil` if the Program has been destroyed, if `name` is empty, or if the symbol does not exist."
+          ],
+          "params": [
+            {
+              "name": "name",
+              "type": "string",
+              "description": "The C symbol name to look up (case-sensitive, no name mangling)."
+            }
+          ],
+          "returns": [
+            {
+              "type": "number",
+              "optional": true,
+              "description": "The address of the symbol as an unsigned integer encoded in a Lua number, or `nil` if not found."
+            }
+          ]
+        },
+        {
+          "name": "bind",
+          "description": [
+            "Looks up a named symbol in the compiled Program and returns a Lua-callable closure that invokes it via libffi.",
+            "",
+            "The `sig` parameter is a type-signature string: the **first character** is the return type, and **subsequent characters** are the argument types (left to right). The type characters are:",
+            "",
+            "| Char | C type |",
+            "|------|--------|",
+            "| `v`  | `void` (return only) |",
+            "| `i`  | `int32_t` |",
+            "| `u`  | `uint32_t` |",
+            "| `l`  | `int64_t` |",
+            "| `f`  | `float` |",
+            "| `d`  | `double` |",
+            "| `b`  | `uint8_t` / boolean |",
+            "| `p`  | pointer (address as number) |",
+            "| `s`  | `const char*` (string) |",
+            "",
+            "Example: `\"ipp\"` means `int32_t fn(int32_t, void*)` — return `i`, args `p`, `p`.",
+            "",
+            "The returned closure is protected by a watchdog (100 ms timeout) and an SEH exception handler. On a crash or timeout it returns `false, reason, address` instead of raising.",
+            "",
+            "Returns `nil` if the Program is destroyed, if `name` or `sig` is empty, if the symbol is not found, or if the signature contains unknown type characters."
+          ],
+          "params": [
+            {
+              "name": "name",
+              "type": "string",
+              "description": "The C symbol name to look up (case-sensitive)."
+            },
+            {
+              "name": "sig",
+              "type": "string",
+              "description": "Type signature string. First character is the return type; remaining characters are argument types. See the type table above."
+            }
+          ],
+          "returns": [
+            {
+              "type": "function",
+              "optional": true,
+              "description": "A callable closure that invokes the symbol with libffi. Returns `nil` if the symbol or signature is invalid. On a hardware exception or watchdog timeout the closure returns `false, reason_string, fault_address` instead of the normal return value."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

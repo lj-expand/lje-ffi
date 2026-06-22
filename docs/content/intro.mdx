@@ -1,0 +1,22 @@
+---
+id: intro
+title: Introduction
+slug: /
+---
+
+<div style={{textAlign: 'center'}}>
+
+  ![LJE Logo](/img/lje-logo.png)
+
+  [Installation](/installation) • [API Reference](/api/base)
+</div>
+
+lje-ffi is a powerful binary module for LJE that enables scripts to do anything. It provides a comprehensive FFI (Foreign Function Interface) library that allows you to call any function from any loaded module, including GMod's own functions, LuaJIT's internal functions, Windows API functions, and more. With lje-ffi, you can extend your scripts' functionality to virtually anything you can imagine, without the need for custom binary modules.
+
+## Note
+
+lje-ffi is an opt-in module that you can install separately. It is not included with LJE by default, and it is not required to use LJE.
+
+This is because there is an **inherent risk** of the module being abused to perform malicious activities. **Always** read the source of any LJE script you use, and do not use scripts that include lje-ffi if you do not trust the source, as it can be used to do literally anything, including reading/writing process memory, loading arbitrary DLLs, and more.
+
+That being said, lje-ffi is completely **inaccessible** to the untrusted GMod client state, so do not worry about adversarial scripts from servers tampering with it.
