@@ -21,6 +21,24 @@
       ]
     },
     {
+      "name": "load",
+      "description": "Loads a module into the current process using its absolute path and returns its handle.",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "description": "The absolute path to the module file (e.g. `\"C:\\\\Windows\\\\System32\\\\user32.dll\"`)."
+        }
+      ],
+      "returns": [
+        {
+          "type": "lightuserdata?",
+          "optional": true,
+          "description": "The module handle, or `nil` if the module could not be loaded."
+        }
+      ]
+    },
+    {
       "name": "name",
       "description": "Returns the base filename of a module given its handle (e.g. `\"engine.dll\"`). Returns an empty string if the name cannot be retrieved.",
       "params": [

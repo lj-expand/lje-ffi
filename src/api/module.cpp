@@ -47,6 +47,22 @@ static int find(lua_State *L) {
   return 1;
 }
 
+// module.load(path: string) -> lightuserdata | nil
+static int load(lua_State* L) {
+  auto lua = g_api->lua;
+  const char* path = lua->tolstring(L, 1, nullptr);
+
+  auto handle = LoadLibraryA(path);
+  if (!handle) {
+    lua->pushnil(L);
+    return 1;
+  }
+
+  printf("[LJE-FFI] Loaded module: %s (handle: %p)\n", path, handle); // Just to be clear when modules load
+  lua->pushlightuserdata(L, handle);
+  return 1;
+}
+
 // module.name(handle: lightuserdata) -> string
 static int name(lua_State *L) {
   auto lua = g_api->lua;
@@ -533,10 +549,13 @@ static int get_from_addr(lua_State *L) {
 void register_all(lua_State *L) {
   auto lua = g_api->lua;
 
-  lua->createtable(L, 0, 8);
+  lua->createtable(L, 0, 9);
 
   lua->pushcclosure(L, reinterpret_cast<void *>(find), 0);
   lua->setfield(L, -2, "find");
+
+  lua->pushcclosure(L, reinterpret_cast<void *>(load), 0);
+  lua->setfield(L, -2, "load");
 
   lua->pushcclosure(L, reinterpret_cast<void *>(name), 0);
   lua->setfield(L, -2, "name");
