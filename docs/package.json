@@ -22,7 +22,8 @@
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.6.3",
-    "@docusaurus/types": "3.6.3"
+    "@docusaurus/types": "3.6.3",
+    "docusaurus-plugin-llms": "^0.4.0"
   },
   "browserslist": {
     "production": [
